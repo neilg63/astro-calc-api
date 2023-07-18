@@ -10,7 +10,7 @@ This application extends [Stéphane Bressani's](https://github.com/stephaneworks
 
 This is the open-source version of a custom API server, using ActixWeb, with a rich set of astronomical and astrological features.
 
-A simple Web interface showcasing many of the calculations is available at [astroui.findingyou.co/](https://astroui.findingyou.co/)
+A simple Web interface showcasing many of the possible calculations, with a few derived custom features, is available at [astroui.findingyou.co/](https://astroui.findingyou.co/) available in a separate [repo](https://github.com/neilg63/astrocalc-front), which also uses the parallel [GeoTimeZone API](https://github.com/neilg63/geotime) project.
 
 ## Build instructions:
 
