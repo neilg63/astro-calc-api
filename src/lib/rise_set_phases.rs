@@ -37,13 +37,11 @@ impl TransitionParams {
   pub fn center_disc_rising() -> i32 {
     TransitionParams::Center as i32
       | TransitionParams::BitNoRefraction as i32
-      | TransitionParams::BitGeoctrNoEclLat as i32
   }
 
   pub fn bottom_disc_rising() -> i32 {
     TransitionParams::Bottom as i32
       | TransitionParams::BitNoRefraction as i32
-      | TransitionParams::BitGeoctrNoEclLat as i32
   }
 
   pub fn normal() -> i32 {
