@@ -362,10 +362,6 @@ impl TransitionSet {
     }
   }
 
-  pub fn is_empty(&self) -> bool {
-    self.rise == 0f64 && self.mc == 0f64 && self.set == 0f64 && self.ic == 0f64
-  }
-
 }
 
 pub fn is_near_poles(lat: f64) -> bool {
@@ -640,14 +636,6 @@ pub fn next_set(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64) -> f64 {
     lng,
     TransitionParams::center_disc_rising_set(),
   )
-}
-
-pub fn next_rise_normal(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64) -> f64 {
-  rise_trans(tjd_ut, ipl, lat, lng, TransitionParams::rise_normal())
-}
-
-pub fn next_set_normal(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64) -> f64 {
-  rise_trans(tjd_ut, ipl, lat, lng, TransitionParams::set_normal())
 }
 
 pub fn next_mc_normal(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64) -> f64 {

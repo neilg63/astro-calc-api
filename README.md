@@ -123,6 +123,19 @@ Query string parameters:
 - iso: 0 = show julian days (default), 1 = show ISO datetime UTC
 - mode: 0,1 (default) show as dailt transition sets with max, min as well as next_rise/next_set and prev_set/prev_rise, 2: show as linear sequence of transition events
 
+Calculate the alternating rise, set, IC and MC times as well and min. and max. altitudes of the sun over 1 or more days.  
+
+### GET /transposed-rise-times
+
+- dt: current date-time
+- dt2: historical date-time
+- loc: current lat,lng(,alt) coordinates
+- loc2: historical lat,lng(,alt) coordinates
+- bodies: comma-separated list of required bodies, all or core"
+- iso: 0 = show julian days (default), 1 = show ISO datetime UTC
+
+Calculate the current transitions of the referenced bodies and their projected current transition times based on their historical positions. dt2 and loc2 refer the time and place of a historical event (e.g. birth). The rise/set times are recalculated based on their historic positions.
+
 ### GET /planet-stations
 
 Show retrograde start, retrograde peak, retrograde end and forward peak speeds of the core planets over a specified period:

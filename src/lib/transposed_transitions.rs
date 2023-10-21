@@ -107,10 +107,16 @@ pub fn calc_mid_point(first: &AltitudeSample, second: &AltitudeSample) -> f64 {
   let value_diff = second.value - first.value;
   let progress = second.value.abs() / value_diff.abs();
   let jd_diff = (second.jd - first.jd).abs();
-  // println!("f {}, s {}, d {}, pr {}", first.value, second.value, value_diff, progress);
   second.jd - (jd_diff * progress)
 }
 
+/*
+* If the rise / set times have not been captured as the switch between negative and position altitude
+* within five minute smaples, but we have positive MC and negative IC, the rise and set times can be approximated
+* from the MC and IC time and altitudes. This may happen to the sun near poles or to other celestial objects
+* that only rise or set briefly in a 24 hour period
+* 
+*/
 fn calc_jd_from_min_max(mc: &AltitudeSample, ic: &AltitudeSample, set_mode: bool) -> f64 {
   let diff_alt = mc.value - ic.value;
   let diff_jd = ic.jd - mc.jd;
@@ -119,6 +125,9 @@ fn calc_jd_from_min_max(mc: &AltitudeSample, ic: &AltitudeSample, set_mode: bool
   mc.jd + (rel_diff * progress)
 }
 
+/*
+* Calculate the porjected transition time between two samples for rise/set based on altitude differences
+*/
 fn calc_mid_sample(
   item: &AltitudeSample,
   prev_min: f64,

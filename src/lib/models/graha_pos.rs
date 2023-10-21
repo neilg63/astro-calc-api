@@ -28,17 +28,6 @@ impl BodyPos {
     }
   }
 
-  pub fn basic_ec(key: &str, lng: f64, lat: f64) -> Self {
-    BodyPos {
-      key: key.to_string(),
-      mode: "ec".to_string(),
-      lng: lng,
-      lat: lat,
-      lng_speed: 0f64,
-      lat_speed: 0f64,
-    }
-  }
-
   pub fn empty() -> Self {
     BodyPos {
       key: "".to_string(),
