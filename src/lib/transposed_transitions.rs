@@ -1,5 +1,4 @@
 use crate::lib::rise_set_phases::{UP_DOWN_TOLERANCE, MIN_JD};
-
 use super::models::general::{KeyNumValue, KeyNumValueSet, CoordinateSystem};
 use super::models::{geo_pos::*, graha_pos::*};
 use super::{
@@ -8,7 +7,7 @@ use super::{
 };
 use serde::{Deserialize, Serialize};
 
-const MINS_PER_DAY: i32 = 1440;
+const MINS_PER_DAY: usize = 1440;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AltitudeSample {
@@ -50,6 +49,15 @@ impl AltitudeSample {
 
   pub fn set_mode(&mut self, mode: &str) {
     self.mode = mode.to_string();
+  }
+
+  // micro-adjustment to account for altitude speed
+  pub fn set_frac_jd_diff(&mut self, prev_val: f64, max_mode: bool) {
+    let frac_diff = if max_mode { self.value.abs() - prev_val.abs() } else { prev_val.abs() - self.value.abs() };
+    // estimate approx. fractional difference in jd based on altitude difference
+    // this serves as the base for subsequent more accurate recalculation over a narrower time range
+    let frac_diff_jd = frac_diff / (MINS_PER_DAY / 3) as f64;
+    self.jd = self.jd + frac_diff_jd;
   }
 
   pub fn to_key_num(&self) -> KeyNumValue {
@@ -95,12 +103,11 @@ impl SamplePos {
  * Occasionally both may be positive or negative or the second sample value be very close to zero
  * In most set and rise cases, one sample is < 0 and the other > 0, taking into account the object's disc radius
  */
-pub fn calc_mid_point(first: AltitudeSample, second: AltitudeSample) -> f64 {
+pub fn calc_mid_point(first: &AltitudeSample, second: &AltitudeSample) -> f64 {
   let value_diff = second.value - first.value;
-  let fraction = if value_diff != 0f64 { second.value.abs() / value_diff.abs() } else { 1f64 };
-  let progress = if fraction > 1f64 { 1f64 / fraction } else { 0f64 };
-  let jd_diff = second.jd - first.jd;
-  // println!("frac: {} pr {} vdi {} ;; {} {}", fraction, value_diff, progress, first.value, second.value);
+  let progress = second.value.abs() / value_diff.abs();
+  let jd_diff = (second.jd - first.jd).abs();
+  // println!("f {}, s {}, d {}, pr {}", first.value, second.value, value_diff, progress);
   second.jd - (jd_diff * progress)
 }
 
@@ -113,36 +120,40 @@ fn calc_jd_from_min_max(mc: &AltitudeSample, ic: &AltitudeSample, set_mode: bool
 }
 
 fn calc_mid_sample(
-  item: AltitudeSample,
+  item: &AltitudeSample,
   prev_min: f64,
   prev_value: f64,
   prev_jd: f64,
   mode: &str,
 ) -> AltitudeSample {
   let prev_sample = AltitudeSample::new(mode, prev_min, prev_jd, prev_value);
-  let mid_point = calc_mid_point(prev_sample, item.clone());
+  let mid_point = calc_mid_point(&prev_sample, item);
   AltitudeSample::new(mode, prev_min, mid_point, 0f64)
 }
 
 fn recalc_min_max_transit_sample(
-  sample: AltitudeSample,
-  geo: GeoPos,
-  lng: f64,
-  lat: f64,
+  sample: &AltitudeSample,
+  geo: &GeoPos,
+  adjusted: (f64, f64),
   max_mode: bool,
   multiplier: u8,
 ) -> AltitudeSample {
-  let sample_rate = 0.25f64;
-  let mut new_sample = sample;
-  let num_sub_samples = multiplier as f64 * 2 as f64 * (1f64 / sample_rate);
+  let (lng, lat ) = adjusted;
+  let sample_rate = 1f64 / 60f64;
+  let mins_per_day = MINS_PER_DAY as f64;
+  let mut new_sample = sample.to_owned();
+  let num_sub_samples = multiplier as f64 * 2.25f64 * (1f64 / sample_rate);
   let sample_start_jd =
-    new_sample.jd - num_sub_samples / (2f64 / sample_rate) / MINS_PER_DAY as f64;
+    new_sample.jd - (num_sub_samples / (2f64 / sample_rate) / mins_per_day);
+
   let sample_start_min = new_sample.mins - num_sub_samples / (2f64 / sample_rate);
   let mode = if max_mode { "mc" } else { "ic" };
   let max = num_sub_samples as i32 + multiplier as i32;
   for i in 0..max {
-    let mins = sample_start_min + i as f64 * sample_rate;
-    let jd = sample_start_jd + (i as f64 * sample_rate) / MINS_PER_DAY as f64;
+    let increment = i as f64;
+    let mins = sample_start_min + increment * sample_rate;
+    let increment_jd = (increment * sample_rate) / mins_per_day;
+    let jd = sample_start_jd + increment_jd;
     let value = calc_altitude(jd, false, geo.lat, geo.lng, lng, lat);
     let item = AltitudeSample::new(mode, mins, jd, value);
     if max_mode && item.value > new_sample.value {
@@ -162,13 +173,13 @@ pub fn calc_transposed_object_transitions(
   sample_key: &str,
   rise_set_minmax: bool,
 ) -> Vec<AltitudeSample> {
-  let max = MINS_PER_DAY / multiplier as i32 + 1;
+  let max = MINS_PER_DAY / multiplier as usize + 1;
   let body_pos = sample_pos.first_body_pos();
   let lng = body_pos.lng;
   let lat = body_pos.lat;
   let lng_speed = body_pos.lng_speed; 
   let sample_mode = sample_pos.sample_mode();
-  let mut items: Vec<AltitudeSample> = Vec::new();
+  let mut items: Vec<AltitudeSample> = Vec::with_capacity(max);
   let mut ic = AltitudeSample::basic_high("ic");
   let mut rise = AltitudeSample::basic("rise");
   let mut set = AltitudeSample::basic("set");
@@ -185,9 +196,15 @@ pub fn calc_transposed_object_transitions(
   let resample_speed = sample_key == "mo" && lng_speed != 0f64;
   let mut obj_sets = false;
   let mut obj_rises = false;
+  let mut mc_adjusted = (lng, lat);
+  let mut ic_adjusted = (lng, lat);
+  let mut prev_mc_val = 0f64; // previous MC value
+  let mut prev_ic_val = 0f64; // previous IC
+  // let mut mc_diff_set = false; //
+  let mins_per_day = MINS_PER_DAY as f64;
   for i in 0..max {
     let n = i as f64 * multiplier as f64;
-    let day_frac = n / MINS_PER_DAY as f64;
+    let day_frac = n / mins_per_day;
     let jd = jd_start + day_frac;
     let mut sample_spd = lng_speed;
     let mut lat_spd = 0f64;
@@ -217,20 +234,32 @@ pub fn calc_transposed_object_transitions(
     if value > mc.value {
       item.set_mode("mc");
       mc = item.clone();
-      
+      if prev_mc_val != 0f64 {
+        mc.set_frac_jd_diff(prev_mc_val, true);
+        // mc_diff_set = true;
+      }
+      mc_adjusted = (adjusted_lng, adjusted_lat);
+      prev_mc_val = mc.value;
     }
     if value < ic.value {
       item.set_mode("ic");
+      // ic = item.clone();
       ic = item.clone();
+      if prev_ic_val != 0f64 {
+        ic.set_frac_jd_diff(prev_ic_val, false);
+      }
+      prev_ic_val = ic.value;
+      ic_adjusted = (adjusted_lng, adjusted_lat);
+      
     }
     let offset_pv = prev_value + disc_offset;
     let offset_v = value + disc_offset;
     let offset_pv2 = prev_value - disc_offset;
     let offset_v2 = value - disc_offset;
     if offset_pv < 0f64 && offset_v > 0f64 {
-      rise = calc_mid_sample(item.clone(), prev_min, offset_pv, prev_jd, "rise");
+      rise = calc_mid_sample(&item, prev_min, offset_pv, prev_jd, "rise");
     } else if offset_pv2 > 0f64 && offset_v2 < 0f64 {
-      set = calc_mid_sample(item.clone(), prev_min, offset_pv2, prev_jd, "set");
+      set = calc_mid_sample(&item, prev_min, offset_pv2, prev_jd, "set");
     }
     if value > 0f64 && prev_value < 0f64 {
       obj_rises = true;
@@ -238,28 +267,28 @@ pub fn calc_transposed_object_transitions(
     if value < 0f64 && prev_value > 0f64 {
       obj_sets = true;
     }
-
     items.push(item);
     prev_value = value;
     prev_min = n;
     prev_jd = jd;
   }
   if mc.jd > 0f64 {
-    mc = recalc_min_max_transit_sample(mc, geo.clone(), lng, lat, true, multiplier);
+    mc = recalc_min_max_transit_sample(&mc, &geo, mc_adjusted, true, multiplier);
+    
   }
   if ic.jd > 0f64 {
-    ic = recalc_min_max_transit_sample(ic, geo.clone(), lng, lat, false, multiplier);
+    ic = recalc_min_max_transit_sample(&ic, &geo, ic_adjusted, false, multiplier);
   }
   if rise_set_minmax {
-    // let diff = (mc.jd - rise.jd).abs();
     let diff = if mc.jd > rise.jd { mc.jd - rise.jd } else { rise.jd - mc.jd };
+   
     if rise.jd <= 0f64 {
       let rise_jd = if mc.value > 0f64 { 0f64 } else { mc.jd - diff };
       rise = AltitudeSample::new("rise", 0f64, rise_jd, mc.value - ic.value);
+      
     }
     if set.jd <= 0f64 {
       let set_jd = if mc.value > 0f64 { mc.jd - diff } else { 0f64 };
-      // println!("set_jd {}", set_jd);
       set = AltitudeSample::new("set", 0f64, set_jd, mc.value - ic.value);
     }
   }
@@ -278,8 +307,10 @@ pub fn calc_transposed_object_transitions(
       rise = AltitudeSample::new("rise", prev_min, mc.jd - diff_mc, 0f64);
     }
   }
+  
   vec![rise, set, mc, ic]
 }
+
 
 pub fn build_transposed_transition_set_from_pos(
   jd_start: f64,
@@ -338,7 +369,7 @@ fn extract_from_alt_samples(alt_samples: &Vec<AltitudeSample>, key: &str) -> Alt
 }
 
 /**
- * Alternative method to fetch rise/set phases for near polar latitudes (> +60 and < -60) based on altitudes
+ * Alternative method to fetch transitions for near polar latitudes (> +60 and < -60) based on altitudes
 */
 pub fn calc_transitions_from_source_refs_altitude(
   jd: f64,
@@ -348,7 +379,6 @@ pub fn calc_transitions_from_source_refs_altitude(
   let pos = calc_body_jd_topo(jd, key, geo, 0f64);
   calc_transition_set_from_lng_lat_speed(jd, key, geo, pos.lng, pos.lat, pos.lng_speed)
 }
-
 
 pub fn calc_transition_set_from_lng_lat_speed(
   jd: f64,
@@ -430,6 +460,28 @@ pub fn calc_transposed_graha_transitions_from_source_refs_topo(
   )
 }
 
+/*
+Calculate transposed transitions from a set of real body positions with a different time with geocentric positions
+*/
+pub fn calc_transposed_graha_transitions_from_source_refs_geo(
+  jd_start: f64,
+  geo: GeoPos,
+  jd_historic: f64,
+  geo_historic: GeoPos,
+  keys: Vec<String>,
+  days: u16,
+) -> Vec<KeyNumValueSet> {
+  calc_transposed_graha_transitions_from_source_refs(
+    "geo",
+    jd_start,
+    geo,
+    jd_historic,
+    geo_historic,
+    keys,
+    days,
+  )
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -448,7 +500,7 @@ mod tests {
     let five_min = 1f64 / 288f64;
     let num = sample_pairs.len();
     for pair in sample_pairs {
-      let new_val = calc_mid_point(pair.clone().0, pair.1.clone());
+      let new_val = calc_mid_point(&pair.0, &pair.1);
       if (new_val - pair.0.jd).abs() < five_min {
         num_ok += 1;
       }

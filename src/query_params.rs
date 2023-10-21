@@ -21,6 +21,7 @@ pub struct InputOptions {
   pub dspan: Option<u16>, // multiple of days in the current base unit 
   pub years: Option<u16>, // duration in years where applicable
   pub loc: Option<String>, // comma-separated lat,lng(,alt) numeric string
+  pub loc2: Option<String>, // comma-separated lat,lng(,alt) numeric string for second reference location
   pub body: Option<String>, // primary celestial body key
   pub ct: Option<u8>, // show contemporary rise/set times 
   pub sp: Option<u8>, // show sun-up/sun-down period with sun lat/long at sunrise/sunset
@@ -72,6 +73,10 @@ pub fn to_date_object_by_num(params: &Query<InputOptions>, num: u8) -> DateInfo 
 
 pub fn to_date_object(params: &Query<InputOptions>) -> DateInfo {
   to_date_object_by_num(&params, 1)
+}
+
+pub fn to_date_object_2(params: &Query<InputOptions>) -> DateInfo {
+  to_date_object_by_num(&params, 2)
 }
 
 pub fn to_geopos_object(params: &Query<InputOptions>) -> GeoPos {

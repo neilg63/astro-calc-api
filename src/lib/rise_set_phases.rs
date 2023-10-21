@@ -44,10 +44,6 @@ impl TransitionParams {
       | TransitionParams::BitNoRefraction as i32
   }
 
-  pub fn normal() -> i32 {
-    TransitionParams::BitNoRefraction as i32 | TransitionParams::BitGeoctrNoEclLat as i32
-  }
-
   pub fn center_disc_rising_rise() -> i32 {
     TransitionParams::center_disc_rising() | TransitionParams::Rise as i32
   }

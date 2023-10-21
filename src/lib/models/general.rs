@@ -1,6 +1,5 @@
 use ::serde::{Serialize, Deserialize};
 use crate::lib::julian_date::julian_day_to_iso_datetime;
-use super::geo_pos::GeoPos;
 use crate::lib::traits::{MatchVecKey, AddKeyedItem};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, PartialOrd)]
@@ -96,10 +95,6 @@ impl KeyNumValueSet {
     KeyNumValueSet { key: key.to_string(), items }
   }
 
-  /* pub fn as_iso_strings(&self) -> KeyStringValueSet {
-    KeyStringValueSet::new(self.key.as_str(), self.items.iter().map(|item| item.as_iso_string()).collect() )
-  } */
-
   pub fn as_flexi_values(&self, iso_mode: bool) -> KeyFlexiValueSet {
     KeyFlexiValueSet::new(self.key.as_str(), self.items.iter().filter(|item| item.value != 0f64).map(|item| match item.key.as_str() {
       "max" | "min" => FlexiValue::NumValue(item.to_owned()),
@@ -110,11 +105,6 @@ impl KeyNumValueSet {
     }).collect() )
   }
 
-  pub fn with_short_key(&self) -> KeyNumValueSet {
-    let short_key = self.key.replace("current__", "");
-    KeyNumValueSet::new(short_key.as_str(), self.items.to_owned() )
-  }
-
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -123,41 +113,12 @@ pub struct NumValue {
   pub value: f64,
 }
 
-/* impl NumValue {
-  pub fn new(num: u16, value: f64) -> NumValue {
-    NumValue { num, value }
-  }
-} */
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NumValueKeySet {
   pub num: u16,
   pub key: String,
   pub values: Vec<NumValue>,
 }
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct NumF64Set {
-    pub num: u16,
-    pub values: Vec<f64>
-}
-
-impl NumF64Set {
-    pub fn new(num: u16, values: Vec<f64>) -> NumF64Set {
-      NumF64Set {num, values }
-    }
-
-    pub fn new_u8(num: u8, values: Vec<f64>) -> NumF64Set {
-      NumF64Set::new(num as u16, values)
-    }
-}
-
-/* impl NumValueKeySet {
-  pub fn new(num: u16, key: &str, values: Vec<NumValue>) -> NumValueKeySet {
-    NumValueKeySet { num, key: key.to_string(), values }
-  }
-} */
-
 
 /**
  * Used for celestial objects
@@ -172,12 +133,6 @@ pub struct LngLat {
 impl LngLat {
   pub fn new(lng: f64, lat: f64) -> LngLat {
     LngLat { lng, lat }
-  }
-  pub fn empty() -> LngLat {
-    LngLat { lng: -1f64, lat: -1f64 }
-  }
-  pub fn to_geo_pos(&self) -> GeoPos {
-    GeoPos::new(self.lat, self.lng, 10f64)
   }
 }
 
