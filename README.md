@@ -156,6 +156,17 @@ Query string parameters:
 - bodies: comma-separated list of required bodies, all or core
 - iso: 0 = show julian days (default), 1 = show ISO datetime UTC
 
+### GET /test-swe-rise
+
+This lets you test the Swiss Ephemeris method swe_rise_trans with and without the "centre disc" flag (SE_BIT_DISC_CENTER)
+If the MC/IC values are zero, there may be an interopability issue. In this the wraoper function will default to the mean between rise and set times, which are close to the MC/IC values for most bodies, except for the moon.
+
+- dt: referenced date-time
+- loc: current lat,lng(,alt) coordinates
+- bodies: comma-separated list of required bodies, all or core
+- iso: 0 = show julian days (default), 1 = show ISO datetime UTC
+- mode: 0 = without centre disc, 1 with centre disc. (mainly affects sun / moon rise/set times)
+
 ### GET /pheno
 
 This shows planetary phenomena for the referenced time and celestial bodies. This only applies to visible planets, moons and stars

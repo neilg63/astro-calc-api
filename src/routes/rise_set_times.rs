@@ -116,7 +116,7 @@ async fn test_rise_set_times(params: Query<InputOptions>) -> impl Responder {
   Json(json!({ "valid": valid, "date": date, "geo": geo, "transitSets": transit_sets, "altTransitSets": alt_transit_sets }))
 }
 
-#[get("/test-swe-mc")]
+#[get("/test-swe-rise")]
 async fn test_mcs(params: Query<InputOptions>) -> impl Responder {
   let micro_interval = time::Duration::from_millis(30);
   reset_ephemeris_path();
