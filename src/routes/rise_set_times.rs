@@ -118,26 +118,40 @@ async fn test_rise_set_times(params: Query<InputOptions>) -> impl Responder {
 
 #[get("/test-swe-mc")]
 async fn test_mcs(params: Query<InputOptions>) -> impl Responder {
-  reset_ephemeris_path();
   let micro_interval = time::Duration::from_millis(30);
+  reset_ephemeris_path();
   let loc: String = params.loc.clone().unwrap_or("0,0".to_string());
   let geo = if let Some(geo_pos) = loc_string_to_geo(loc.as_str()) { geo_pos } else { GeoPos::zero() };
   let date = to_date_object(&params);
   let def_keys = vec!["su", "mo", "ma", "me", "ju", "ve", "sa"];
   let key_string: String = params.bodies.clone().unwrap_or("".to_string());
   let keys = body_keys_str_to_keys_or(key_string, def_keys);
-  let mut mcs: Vec<KeyNumValue> = vec![];
+  let iso_mode = params.iso.unwrap_or(0) > 0;
+  let center_disc = params.mode.unwrap_or(0) > 0;
+  let mut mcs: Vec<FlexiValue> = vec![];
+  let mut ics: Vec<FlexiValue> = vec![];
+  let mut rises: Vec<FlexiValue> = vec![];
+  let mut sets: Vec<FlexiValue> = vec![];
   let mut num_valid: usize = 0;
   for key in keys {
     let mc = next_mc(date.jd, Bodies::from_key(key.as_str()), geo.lat, geo.lng);
-    mcs.push(KeyNumValue::new(key.as_str(), mc));
+    mcs.push(KeyNumValue::new(key.as_str(), mc).as_flexi_value(iso_mode));
     if mc >= 0f64 { 
       num_valid += 1;
     }
+    let body = Bodies::from_key(key.as_str());
+    let ic = next_ic(date.jd, body, geo.lat, geo.lng);
+    ics.push(KeyNumValue::new(key.as_str(), ic).as_flexi_value(iso_mode));
+    let rise = next_rise_normal(date.jd, body, geo.lat, geo.lng, center_disc);
+    rises.push(KeyNumValue::new(key.as_str(), rise).as_flexi_value(iso_mode));
+    let set = next_set_normal(date.jd, body, geo.lat, geo.lng, center_disc);
+    sets.push(KeyNumValue::new(key.as_str(), set).as_flexi_value(iso_mode));
   }
   let num_items = mcs.len();
   let valid = num_valid == num_items && num_items > 0;
-  let desc = "Tests the native Swiss Ephemeris implementation with MC/IC flags, known to be buggy on some platforms. In production, mid point between rise and set is used. Where an object does not set or rise, the MC and IC are calculated by sampling max and min altitdues.";
+  let desc = "Tests the native Swiss Ephemeris implementation with MC/IC and rise/set flags with and without the center disc flag. Where an object does not set or rise, the MC and IC are calculated by sampling max and min altitdues.";
+  let mode_notes = "mode=1 => CENTER DISC (0 => normal)";
+  let mode_label = if center_disc { "Centre disc" } else { "Normal" };
   thread::sleep(micro_interval);
-  Json(json!({ "valid": valid, "description": desc, "date": date, "geo": geo, "values": mcs }))
+  Json(json!({ "valid": valid, "astroNotes": { "desc": desc, "options": mode_notes, "mode": mode_label }, "date": date, "geo": geo, "results": { "mc": mcs, "ic": ics, "rise": rises, "set": sets } }))
 }

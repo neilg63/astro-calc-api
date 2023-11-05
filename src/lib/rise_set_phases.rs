@@ -39,10 +39,10 @@ impl TransitionParams {
       | TransitionParams::BitNoRefraction as i32
   }
 
-  pub fn bottom_disc_rising() -> i32 {
+/*   pub fn bottom_disc_rising() -> i32 {
     TransitionParams::Bottom as i32
       | TransitionParams::BitNoRefraction as i32
-  }
+  } */
 
   pub fn center_disc_rising_rise() -> i32 {
     TransitionParams::center_disc_rising() | TransitionParams::Rise as i32
@@ -129,17 +129,17 @@ impl ExtendedTransitionSet {
   * celestial object rise after an extended period of being down all day.
   * it will thus set again soon
   */
-  pub fn down_period_over(&self) -> bool {
+  /* pub fn down_period_over(&self) -> bool {
     (self.set == 0f64 && self.rise > 0f64) && self.max > 0f64
-  }
+  } */
 
   pub fn is_up(&self) -> bool {
     self.is_up_by(UP_DOWN_TOLERANCE)
   }
 
-  pub fn is_all_up(&self) -> bool {
+ /*  pub fn is_all_up(&self) -> bool {
     self.is_up_by(0f64)
-  }
+  } */
 
   fn is_down_by(&self, tolerance: f64) -> bool {
     (self.rise == 0f64 || self.set == 0f64) && self.max <= tolerance
@@ -149,7 +149,7 @@ impl ExtendedTransitionSet {
     self.is_down_by(UP_DOWN_TOLERANCE)
   }
 
-  pub fn is_all_down(&self) -> bool {
+  /* pub fn is_all_down(&self) -> bool {
     self.is_down_by(0f64)
   }
 
@@ -161,7 +161,7 @@ impl ExtendedTransitionSet {
     } else {
       0
     }
-  }
+  } */
 
   pub fn as_iso_datetime(&self) -> ExtendedTransitionIsoSet {
     let prev_rise_val = if self.is_up() { self.prev_set } else { 0f64 };
@@ -206,12 +206,12 @@ impl ExtendedTransitionSet {
     self.next_rise = next_jd;
   }
 
-  pub fn set_rise(&mut self) {
+/*   pub fn set_rise(&mut self) {
     let jd_diff = self.mc - self.ic;
     let fraction = (self.max + self.min) / self.min;
     let progress = if fraction != 0f64 { 1f64 / fraction } else { 1f64 };
     self.rise = self.set - jd_diff * progress;
-  }
+  } */
 
   pub fn needs_rise(&self) -> bool {
     self.rise < MIN_JD && self.max > 0f64 && self.min < 0f64
@@ -666,6 +666,16 @@ pub fn next_mc(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64) -> f64 {
 
 pub fn next_ic(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64) -> f64 {
   rise_trans(tjd_ut, ipl, lat, lng, TransitionParams::ic())
+}
+
+pub fn next_rise_normal(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64, center_disc: bool) -> f64 {
+  let tp = if center_disc { TransitionParams::center_disc_rising_rise() } else { TransitionParams::rise_normal() };
+  rise_trans(tjd_ut, ipl, lat, lng, tp)
+}
+
+pub fn next_set_normal(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64, center_disc: bool) -> f64 {
+  let tp = if center_disc { TransitionParams::center_disc_rising_set() } else { TransitionParams::set_normal() };
+  rise_trans(tjd_ut, ipl, lat, lng, tp)
 }
 
 pub fn longitude_to_solar_time_offset_jd(lng: f64) -> f64 {
