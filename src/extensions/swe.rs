@@ -1,6 +1,4 @@
 use std::os::raw::{c_char, c_double, c_int};
-//use std::boxed::{Box};
-//use std::{thread, time};
 use serde::{Serialize, Deserialize};
 use libswe_sys::sweconst::Bodies;
 use super::super::lib::settings::ayanamshas::*;
@@ -23,7 +21,7 @@ extern "C" {
   pub fn swe_rise_trans(
       tjd_ut: c_double,
       ipl: c_int,
-      starname: *mut [c_char; 0],
+      starname: *mut [c_char; 1],
       epheflag: c_int,
       rsmi: c_int,
       geopos: *mut [c_double; 3],
@@ -85,17 +83,18 @@ extern "C" {
 pub fn rise_trans_raw(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64, iflag: i32) -> [f64; 3] {
   let mut serr = [0; 255];
   let geopos = &mut [lng, lat, 0f64];
-  let star_ref = &mut [];
+  let star_ref = &mut ['\0' as i8]; // set to \0 cast as i8 to ignore *starname
+  // epheflag:  Ephemeris flag as integer (SE$FLG_JPLEPH=1, SE$FLG_SWIEPH=2 or SE$FLG_MOSEPH=4)
+  let epheflag: i32 = 1;
   let result = unsafe {
     let p_xx: &mut [f64; 3] = &mut [0f64, 0f64, 0f64];
     std::ptr::drop_in_place(p_xx);
-    //let bx = Box::new(*p_xx);
     let p_serr = serr.as_mut_ptr();
     swe_rise_trans(
         tjd_ut,
         ipl as i32,
         star_ref,
-        0,
+        epheflag,
         iflag,
         geopos,
         0f64,
@@ -107,16 +106,6 @@ pub fn rise_trans_raw(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64, iflag: i32) 
   };
   result.to_owned()
 }
-
-/* pub fn rise_trans_value(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64, iflag: i32) -> f64 {
-  rise_trans_raw(tjd_ut, ipl, lat, lng, iflag)[0]
-}
-
-pub fn rise_trans(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64, iflag: i32) -> f64 {
-  let ten_millis = time::Duration::from_millis(10);
-  thread::sleep(ten_millis);
-  rise_trans_value(tjd_ut, ipl, lat, lng, iflag)
-} */
 
 pub fn rise_trans(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64, iflag: i32) -> f64 {
   rise_trans_raw(tjd_ut, ipl, lat, lng, iflag)[0]
