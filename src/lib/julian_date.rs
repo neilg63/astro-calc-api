@@ -1,15 +1,9 @@
 use chrono::NaiveDateTime;
 
-pub enum JulianDayEpoch {
-  Days = 2440587, // ref day of 1 Jan 1970 UTC in julian days (actually 1969-12-31T12:00:00)
-  Hours = 12, // ref hours in addition to ref days, 12 hours = 0.5 days
-}
+const JULIAN_DAY_UNIX_EPOCH_DAYS: f64 = 2440587.5;
 
-impl JulianDayEpoch {
-  fn days_unix() -> f64 {
-    JulianDayEpoch::Days as i64 as f64 + JulianDayEpoch::Hours as i64 as f64 / 24f64
-  }
-}
+// const JULIAN_DAY_UNIX_EPOCH_WEEKDAY: u8 = 4;
+
 /**
  * Utility function to convert any ISO-8601-like date string to a Kronos NaiveDateTime object
  * This function accepts YYYY-mm-dd HH:MM:SS separated by a space or letter T and with or without hours, minutes or seconds.
@@ -49,15 +43,15 @@ pub fn iso_string_to_datetime(dt: &str) -> NaiveDateTime {
   Convert the current unixtime to julian days
 */
 pub fn unixtime_to_julian_day(ts: i64) -> f64 {
-  (ts as f64 / 86_400f64) + JulianDayEpoch::days_unix()
+  (ts as f64 / 86_400f64) + JULIAN_DAY_UNIX_EPOCH_DAYS
 }
 
-pub fn datetime_to_julian_day(dt: &str) -> f64 {
+/* pub fn datetime_to_julian_day(dt: &str) -> f64 {
   unixtime_to_julian_day(iso_string_to_datetime(dt).timestamp())
-}
+} */
 
 pub fn julian_day_to_unixtime(jd: f64) -> i64 {
-  ((jd - JulianDayEpoch::days_unix() as f64) * 86400f64) as i64
+  ((jd - JULIAN_DAY_UNIX_EPOCH_DAYS) * 86400f64) as i64
 }
 
 pub trait JulianDay {
@@ -87,12 +81,6 @@ pub fn julian_day_to_iso_datetime(jd: f64) -> String {
   }
 }
 
-/* pub fn current_jd() -> f64 {
-  unixtime_to_julian_day(chrono::offset::Utc::now().timestamp())
-} */
-
 pub fn current_datetime_string() -> String {
   NaiveDateTime::from_timestamp(chrono::offset::Utc::now().timestamp(), 0).format("%Y-%m-%dT%H:%M:%S").to_string()
 }
-
-
