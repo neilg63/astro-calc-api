@@ -1,5 +1,5 @@
-use super::super::{julian_date::*, traits::*};
-use super::general::{LngLat, LngLatKey, ToLngLat, ToLngLatKey, CoordinateSystem};
+use crate::calc::{dates::*, traits::*};
+use crate::calc::models::general::{LngLat, LngLatKey, ToLngLat, ToLngLatKey, CoordinateSystem};
 use libswe_sys::swerust::handler_swe07::PhenoUtResult;
 use serde::{Deserialize, Serialize};
 

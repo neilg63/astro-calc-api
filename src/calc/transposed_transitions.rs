@@ -1,4 +1,4 @@
-use crate::lib::rise_set_phases::{UP_DOWN_TOLERANCE, MIN_JD};
+use crate::calc::rise_set_phases::{UP_DOWN_TOLERANCE, MIN_JD};
 use super::models::general::{KeyNumValue, KeyNumValueSet, CoordinateSystem};
 use super::models::{geo_pos::*, graha_pos::*};
 use super::{

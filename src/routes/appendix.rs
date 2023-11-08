@@ -1,5 +1,5 @@
 use serde_json::json;
-use crate::lib::settings::{ayanamshas::{all_ayanamsha_keys, AynamshaInfo}, house_systems::houses_as_key_map};
+use crate::calc::settings::{ayanamshas::{all_ayanamsha_keys, AynamshaInfo}, house_systems::houses_as_key_map};
 use actix_web::{get, Responder,web::Json};
 
 #[get("/appendix")]

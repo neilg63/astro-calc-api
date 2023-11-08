@@ -1,4 +1,4 @@
-use super::super::{
+use crate::calc::{
   core::{calc_altitude_tuple, ecliptic_to_equatorial_tuple},
   math_funcs::{recalc_houses_by_system, subtract_360},
 };

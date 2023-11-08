@@ -1,4 +1,4 @@
-use super::models::geo_pos::GeoPos;
+use crate::calc::models::geo_pos::GeoPos;
 
 /*
 * Serves to match &str keys to enum types

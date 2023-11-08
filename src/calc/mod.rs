@@ -1,4 +1,4 @@
-pub mod julian_date;
+pub mod dates;
 pub mod core;
 pub mod rise_set_phases;
 pub mod transposed_transitions;

@@ -1,4 +1,5 @@
-use crate::lib::{models::geo_pos::GeoPos, julian_date::julian_day_to_datetime};
+use julian_day_converter::julian_day_to_datetime;
+use crate::calc::models::geo_pos::GeoPos;
 
 pub fn to_str_refs(strings: &Vec<String>) -> Vec<&str> {
   let strs: Vec<&str> = strings.iter().map(|s| s.as_ref()).collect();
@@ -33,7 +34,7 @@ pub fn calc_circular_diff(ref_int: i32, target_int: i32, base: i32) -> i32 {
 }
 
 pub fn calc_days_to_next_prev_equinox(jd: f64) -> i32 {
-  let yd = julian_day_to_datetime(jd).format("%j").to_string().parse::<i32>().unwrap_or(0);
+  let yd = if let Ok(dt) = julian_day_to_datetime(jd) { dt.format("%j").to_string().parse::<i32>().unwrap_or(0) } else { 0 };
   let half_year_days = 183;
   let autumn_eq = 266;
   let spring_eq = autumn_eq - half_year_days;

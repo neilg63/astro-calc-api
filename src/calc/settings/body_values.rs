@@ -1,5 +1,5 @@
 use libswe_sys::sweconst::Bodies;
-use crate::lib::traits::*;
+use crate::calc::traits::*;
 
 impl FromKey<Bodies> for Bodies {
   fn from_key(key: &str) -> Bodies {

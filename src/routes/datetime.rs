@@ -1,5 +1,5 @@
 use serde_json::*;
-use super::super::lib::{models::{date_info::*, geo_pos::*},rise_set_phases::{start_jd_geo, to_sun_rise_sets}, utils::{converters::*, validators::*}};
+use super::super::calc::{models::{date_info::*, geo_pos::*},rise_set_phases::{start_jd_geo, to_sun_rise_sets}, utils::{converters::*, validators::*}};
 use actix_web::{get, Responder,web::{Query, Json, Path}};
 use super::super::query_params::*;
 

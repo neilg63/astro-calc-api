@@ -1,8 +1,8 @@
-use super::super::extensions::swe::rise_trans;
+use crate::extensions::swe::rise_trans;
 use super::utils::converters::get_next_prev_rise_set_polar_calc_offset;
 use super::{
   core::calc_altitude_object,
-  julian_date::julian_day_to_iso_datetime,
+  dates::julian_day_to_iso_datetime,
   models::{
     general::*,
     geo_pos::*,
@@ -168,7 +168,6 @@ impl ExtendedTransitionSet {
     let prev_set_val = if self.is_up() { 0f64 } else { self.prev_set };
     let next_rise_val = if self.is_up() { 0f64 } else { self.next_rise };
     let next_set_val = if self.is_up() { self.next_rise } else { 0f64 };
-    
     ExtendedTransitionIsoSet {
       min: self.min,
       prev_rise: julian_day_to_iso_datetime(prev_rise_val),
@@ -320,8 +319,10 @@ pub enum AltTransitionValueSet {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AltTransitionIsoSet {
   pub min: f64,
+  #[serde(skip_serializing_if = "String::is_empty")]
   pub rise: String,
   pub mc: String,
+  #[serde(skip_serializing_if = "String::is_empty")]
   pub set: String,
   pub ic: String,
   pub max: f64,
@@ -779,10 +780,10 @@ pub fn to_sun_rise_sets(
   AltTransitionValueSet,
   i32,
 ) {
-  let current = calc_transition_set_extended(jd, Bodies::from_key("su"), geo.lat, geo.lng, false);
-  let prev = calc_transition_set_alt(jd - 1f64, Bodies::from_key("su"), geo.lat, geo.lng);
-  let next = calc_transition_set_alt(jd + 1f64, Bodies::from_key("su"), geo.lat, geo.lng);
-  
+  let sun = Bodies::from_key("su");
+  let current = calc_transition_set_extended(jd, sun, geo.lat, geo.lng, false);
+  let prev = calc_transition_set_alt(jd - 1f64, sun, geo.lat, geo.lng);
+  let next = calc_transition_set_alt(jd + 1f64, sun, geo.lat, geo.lng);
   let offset_secs = if offset_tz_secs != None {
     offset_tz_secs.unwrap()
   } else {

@@ -1,7 +1,7 @@
 use std::os::raw::{c_char, c_double, c_int};
 use serde::{Serialize, Deserialize};
 use libswe_sys::sweconst::Bodies;
-use super::super::lib::settings::ayanamshas::*;
+use crate::calc::settings::ayanamshas::*;
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct AltitudeSet {

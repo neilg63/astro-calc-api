@@ -2,7 +2,7 @@ use std::{thread, time};
 use serde_json::*;
 use actix_web::{get, Responder,web::{Query, Json}};
 use super::super::{query_params::*, reset_ephemeris_path};
-use super::super::lib::{
+use super::super::calc::{
   traits::FromKey,
   rise_set_phases::*,
   transposed_transitions::{calc_transposed_graha_transitions_from_source_refs_topo, calc_transposed_graha_transitions_from_source_refs_geo },

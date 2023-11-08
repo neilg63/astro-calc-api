@@ -1,4 +1,4 @@
-mod lib;
+mod calc;
 mod extensions;
 mod constants;
 mod query_params;
@@ -20,7 +20,7 @@ use libswe_sys::swerust::handler_swe02::*;
 use serde::{Serialize, Deserialize};
 use serde_json::*;
 use clap::Parser;
-use lib::{models::date_info::*, utils::check_directory::validate_directory};
+use calc::{models::date_info::*, utils::check_directory::validate_directory};
 use extensions::swe::set_sid_mode;
 use actix_web::{App, HttpServer, Responder, web::{self, Json}};
 use constants::*;

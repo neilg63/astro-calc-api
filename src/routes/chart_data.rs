@@ -1,5 +1,5 @@
-use crate::lib::settings::{ayanamshas::match_ayanamsha_num, house_systems::houses_as_key_map};
-use crate::lib::{
+use crate::calc::settings::{ayanamshas::match_ayanamsha_num, house_systems::houses_as_key_map};
+use crate::calc::{
   core::*,
   models::{date_info::*, general::*, geo_pos::*, graha_pos::*, houses::*},
   planet_stations::{match_all_nextprev_planet_stations, BodySpeedSet},

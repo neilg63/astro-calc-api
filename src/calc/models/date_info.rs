@@ -1,6 +1,6 @@
-use ::serde::{Serialize, Deserialize};
-use super::super::julian_date::*;
-use chrono::NaiveDateTime;
+use julian_day_converter::*;
+use serde::{Serialize, Deserialize};
+use crate::calc::dates::*;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DateInfo {
@@ -20,7 +20,7 @@ impl DateInfo {
     }
 
     pub fn new_from_jd(jd: f64) -> DateInfo {
-      let dt = julian_day_to_datetime(jd);
+      let dt = julian_day_to_datetime(jd).unwrap();
       DateInfo {
         utc: dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
         jd: dt.to_jd(),
@@ -29,7 +29,7 @@ impl DateInfo {
     }
 
     pub fn now() -> DateInfo {
-        let dt = NaiveDateTime::from_timestamp(chrono::offset::Utc::now().timestamp(), 0);
+        let dt = current_datetime().unwrap();
         DateInfo {
              utc: dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
              jd: dt.to_jd(),

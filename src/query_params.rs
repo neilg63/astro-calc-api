@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use actix_web::web::Query;
-use crate::lib::{utils::converters::loc_string_to_geo, models::geo_pos::GeoPos};
-use super::lib::{models::date_info::DateInfo, julian_date::current_datetime_string};
+use crate::calc::{utils::converters::loc_string_to_geo, models::geo_pos::GeoPos};
+use super::calc::{models::date_info::DateInfo, dates::current_datetime_string};
 
 #[derive(Deserialize)]
 pub struct InputOptions {
