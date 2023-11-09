@@ -27,10 +27,10 @@ pub enum TransitionParams {
   Mc = 4,
   Ic = 8,
   Center = 256,
-  Bottom = 8192,
+  // Bottom = 8192,
   Fixed = 16384,
   BitNoRefraction = 512,
-  BitGeoctrNoEclLat = 128,
+  // BitGeoctrNoEclLat = 128,
 }
 
 impl TransitionParams {
@@ -124,14 +124,6 @@ impl ExtendedTransitionSet {
   pub fn up_period_over(&self) -> bool {
     (self.rise == 0f64 && self.set > 0f64) && self.min < 0f64
   }
-
-   /*
-  * celestial object rise after an extended period of being down all day.
-  * it will thus set again soon
-  */
-  /* pub fn down_period_over(&self) -> bool {
-    (self.set == 0f64 && self.rise > 0f64) && self.max > 0f64
-  } */
 
   pub fn is_up(&self) -> bool {
     self.is_up_by(UP_DOWN_TOLERANCE)
@@ -232,24 +224,6 @@ pub struct AltTransitionSet {
 }
 
 impl AltTransitionSet {
-
-  pub fn is_up(&self) -> bool {
-    (self.rise == 0f64 || self.set == 0f64) && self.min >= (0f64 - UP_DOWN_TOLERANCE)
-  }
-
-  pub fn is_down(&self) -> bool {
-    (self.rise == 0f64 || self.set == 0f64) && self.max <= UP_DOWN_TOLERANCE
-  }
-
-  pub fn start_mode(&self) -> i8 {
-    if self.is_up() {
-      1
-    } else if self.is_down() {
-      -1
-    } else {
-      0
-    }
-  }
 
   pub fn as_iso_datetime(&self) -> AltTransitionIsoSet {
     AltTransitionIsoSet {
