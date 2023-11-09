@@ -137,10 +137,6 @@ impl ExtendedTransitionSet {
     self.is_up_by(UP_DOWN_TOLERANCE)
   }
 
- /*  pub fn is_all_up(&self) -> bool {
-    self.is_up_by(0f64)
-  } */
-
   fn is_down_by(&self, tolerance: f64) -> bool {
     (self.rise == 0f64 || self.set == 0f64) && self.max <= tolerance
   }
@@ -148,20 +144,6 @@ impl ExtendedTransitionSet {
   pub fn is_down(&self) -> bool {
     self.is_down_by(UP_DOWN_TOLERANCE)
   }
-
-  /* pub fn is_all_down(&self) -> bool {
-    self.is_down_by(0f64)
-  }
-
-  pub fn start_mode(&self) -> i8 {
-    if self.is_up() {
-      1
-    } else if self.is_down() {
-      -1
-    } else {
-      0
-    }
-  } */
 
   pub fn as_iso_datetime(&self) -> ExtendedTransitionIsoSet {
     let prev_rise_val = if self.is_up() { self.prev_set } else { 0f64 };
