@@ -8,7 +8,7 @@ This application extends [Stéphane Bressani's](https://github.com/stephaneworks
 - Ayanamshas for sidereal longitudes used in Indian astrology
 - Sun period and longitudes at sunrise and sunset
 
-This is the open-source version of a custom API server, using ActixWeb, with a rich set of astronomical and astrological features.
+This is the open-source version of a custom API server, using ActixWeb, with a rich set of astronomical and astrological features, and uses the [Julian Day Converter](https://crates.io/crates/julian_day_converter) library crate for integration with the chrono crate to handle date-time interopability.
 
 A simple Web interface showcasing many of the possible calculations, with a few derived custom features, is available at [astroui.findingyou.co/](https://astroui.findingyou.co/) available in a separate [repo](https://github.com/neilg63/astrocalc-front), which also uses the parallel [GeoTimeZone API](https://github.com/neilg63/geotime) project.
 
