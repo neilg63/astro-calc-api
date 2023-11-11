@@ -48,7 +48,7 @@ async fn date_now() -> impl Responder {
 }
 
 async fn welcome() -> impl Responder {
-  Json(json!({ "message": "Welcome to Astro API", "time": DateInfo::now(), "routes": endpoint_help(), "ephemerisPath": get_ephemeris_path() }))
+  Json(json!({ "message": "Welcome to Astro API", "time": DateInfo::now(), "routes": endpoint_help(), "options": rise_set_option_help(), "ephemerisPath": get_ephemeris_path() }))
 }
 
 async fn welcome_not_configured() -> impl Responder {

@@ -16,10 +16,12 @@ use super::{
 use libswe_sys::sweconst::Bodies;
 use libswe_sys::swerust::handler_swe07::pheno_ut;
 use serde::{Deserialize, Serialize};
+use strum_macros::ToString;
 
 pub const MAX_POLAR_DAY: i32 = 183;
 pub const MIN_JD: f64 = 1000f64;
 pub const UP_DOWN_TOLERANCE: f64 = 0.5f64;
+
 
 pub enum TransitionParams {
   Rise = 1,
@@ -27,26 +29,12 @@ pub enum TransitionParams {
   Mc = 4,
   Ic = 8,
   Center = 256,
-  // Bottom = 8192,
+  Bottom = 8192,
   Fixed = 16384,
   BitNoRefraction = 512,
-  // BitGeoctrNoEclLat = 128,
 }
 
 impl TransitionParams {
-  pub fn center_disc_rising() -> i32 {
-    TransitionParams::Center as i32
-      | TransitionParams::BitNoRefraction as i32
-  }
-
-/*   pub fn bottom_disc_rising() -> i32 {
-    TransitionParams::Bottom as i32
-      | TransitionParams::BitNoRefraction as i32
-  } */
-
-  pub fn center_disc_rising_rise() -> i32 {
-    TransitionParams::center_disc_rising() | TransitionParams::Rise as i32
-  }
 
   pub fn rise_normal() -> i32 {
     TransitionParams::Fixed as i32 | TransitionParams::Rise as i32
@@ -56,16 +44,80 @@ impl TransitionParams {
     TransitionParams::Fixed as i32 | TransitionParams::Set as i32
   }
 
-  pub fn center_disc_rising_set() -> i32 {
-    TransitionParams::center_disc_rising() | TransitionParams::Set as i32
+  fn mode(alignment_mode: u8, no_refrac: bool) -> i32 {
+    if alignment_mode > 0 {
+      let alignment_flag = match alignment_mode {
+        2 => TransitionParams::Bottom,
+        3 => TransitionParams::Fixed,
+        _ => TransitionParams::Center
+      } as i32;
+      if no_refrac {
+        alignment_flag | TransitionParams::BitNoRefraction as i32
+      } else {
+        alignment_flag
+      }
+    } else if no_refrac {
+      TransitionParams::Center as i32
+    } else {
+      0i32
+    }
   }
 
   pub fn mc() -> i32 {
-    TransitionParams::BitNoRefraction as i32 | TransitionParams::Mc as i32
+    TransitionParams::Mc as i32
   }
 
   pub fn ic() -> i32 {
-    TransitionParams::BitNoRefraction as i32 | TransitionParams::Ic as i32
+    TransitionParams::Ic as i32
+  }
+
+  pub fn set(alignment_mode: u8, no_refrac: bool) -> i32 {
+    TransitionParams::mode(alignment_mode, no_refrac) | TransitionParams::Set as i32
+  }
+
+  pub fn rise(alignment_mode: u8, no_refrac: bool) -> i32 {
+    TransitionParams::mode(alignment_mode, no_refrac) | TransitionParams::Rise as i32
+  }
+}
+
+
+#[derive(Debug, Copy, Clone, ToString)]
+pub enum TransitionMode {
+  None = 0,
+  NoRefractionOnly = 1,
+  CenterNoRefraction = 2,
+  CenterOnly = 3,
+  BottomNoRefraction = 4,
+  BottomOnly = 5,
+  FixedNoRefraction = 6,
+  FixedOnly = 7,
+}
+
+impl TransitionMode {
+  pub fn from_u8(num: u8) -> Self {
+    match num {
+      1 => TransitionMode::NoRefractionOnly,
+      2 => TransitionMode::CenterNoRefraction,
+      3 => TransitionMode::CenterOnly,
+      4 => TransitionMode::BottomNoRefraction,
+      5 => TransitionMode::BottomOnly,
+      6 => TransitionMode::FixedNoRefraction,
+      7 => TransitionMode::FixedOnly,
+      _=>  TransitionMode::None,
+    }
+  }
+
+  pub fn to_options(&self) -> (u8, bool) {
+    match *self {
+      TransitionMode::NoRefractionOnly => (0, true),
+      TransitionMode::CenterNoRefraction => (1, true),
+      TransitionMode::CenterOnly => (1, false),
+      TransitionMode::BottomNoRefraction => (2, true),
+      TransitionMode::BottomOnly => (2, false),
+      TransitionMode::FixedNoRefraction => (3, true),
+      TransitionMode::FixedOnly => (3, false),
+      _ => (0, false),
+    }
   }
 }
 
@@ -330,15 +382,16 @@ pub fn calc_transition_set_extended_fast(
   ipl: Bodies,
   lat: f64,
   lng: f64,
+  mode: TransitionMode
 ) -> ExtendedTransitionSet {
   let ref_jd = start_jd_geo(jd, lng);
-  let prev_set = next_set(ref_jd - 1f64, ipl, lat, lng);
-  let rise = next_rise(ref_jd, ipl, lat, lng);
-  let set = next_set(ref_jd, ipl, lat, lng);
+  let prev_set = next_set(ref_jd - 1f64, ipl, lat, lng, mode);
+  let rise = next_rise(ref_jd, ipl, lat, lng, mode);
+  let set = next_set(ref_jd, ipl, lat, lng, mode);
   //let mc = next_mc_q(ref_jd, ipl, lat, lng, rise);
   let mc = next_mc_normal(ref_jd, ipl, lat, lng);
   let ic = next_ic_normal(ref_jd, ipl, lat, lng);
-  let next_rise = next_rise(set, ipl, lat, lng);
+  let next_rise = next_rise(set, ipl, lat, lng, mode);
   let min = calc_altitude_object(ic, false, lat, lng, ipl.to_key());
   let max = calc_altitude_object(mc, false, lat, lng, ipl.to_key());
   ExtendedTransitionSet {
@@ -353,10 +406,10 @@ pub fn calc_transition_set_extended_fast(
   }
 }
 
-pub fn calc_transition_set_alt_fast(jd: f64, ipl: Bodies, lat: f64, lng: f64) -> AltTransitionSet {
+pub fn calc_transition_set_alt_fast(jd: f64, ipl: Bodies, lat: f64, lng: f64, mode: TransitionMode) -> AltTransitionSet {
   let ref_jd = start_jd_geo(jd, lng);
-  let rise = next_rise(ref_jd, ipl, lat, lng);
-  let set = next_set(ref_jd, ipl, lat, lng);
+  let rise = next_rise(ref_jd, ipl, lat, lng, mode);
+  let set = next_set(ref_jd, ipl, lat, lng, mode);
   let mc = next_mc_normal(ref_jd, ipl, lat, lng);
   let ic = next_ic_normal(ref_jd, ipl, lat, lng);
   let min = calc_altitude_object(ic, false, lat, lng, ipl.to_key());
@@ -454,50 +507,47 @@ pub fn calc_transition_set_extended(
   ipl: Bodies,
   lat: f64,
   lng: f64,
-  get_prev_next: bool
+  get_prev_next: bool,
+  mode: TransitionMode
 ) -> ExtendedTransitionSet {
   if is_near_poles(lat) {
     calc_transition_set_extended_azalt(jd, ipl, lat, lng, get_prev_next)
   } else {
-    calc_transition_set_extended_fast(jd, ipl, lat, lng)
+    calc_transition_set_extended_fast(jd, ipl, lat, lng, mode)
   }
 }
 
-pub fn calc_transition_set_alt(jd: f64, ipl: Bodies, lat: f64, lng: f64) -> AltTransitionSet {
+pub fn calc_transition_set_alt(jd: f64, ipl: Bodies, lat: f64, lng: f64, mode: TransitionMode) -> AltTransitionSet {
   if is_near_poles(lat) {
     calc_transition_set_alt_azalt(jd, ipl, lat, lng)
   } else {
-    calc_transition_set_alt_fast(jd, ipl, lat, lng)
+    calc_transition_set_alt_fast(jd, ipl, lat, lng, mode)
   }
 }
 
-pub fn calc_transition_set_fast(jd: f64, ipl: Bodies, lat: f64, lng: f64) -> TransitionSet {
+pub fn calc_transition_set_fast(jd: f64, ipl: Bodies, lat: f64, lng: f64, mode: TransitionMode) -> TransitionSet {
   let ref_jd = start_jd_geo(jd, lng);
-  let rise = next_rise(ref_jd, ipl, lat, lng);
-  let set = next_set(rise, ipl, lat, lng);
-  /* let mc = next_mc(ref_jd, ipl, lat, lng);
-  let ic = next_ic(ref_jd, ipl, lat, lng); */
-  // MC/IC flags have issues via alc_mer_trans when compiled with gcc
-  // use median of rise/set with fixed disc instead
+  let rise = next_rise(ref_jd, ipl, lat, lng, mode);
+  let set = next_set(rise, ipl, lat, lng, mode);
   let mc = next_mc_normal(ref_jd, ipl, lat, lng);
   let ic = next_ic_normal(mc, ipl, lat, lng);
   TransitionSet { rise, mc, set, ic }
 }
 
-pub fn calc_transition_set(jd: f64, ipl: Bodies, lat: f64, lng: f64) -> TransitionSet {
+pub fn calc_transition_set(jd: f64, ipl: Bodies, lat: f64, lng: f64, mode: TransitionMode) -> TransitionSet {
   if is_near_poles(lat) {
     let ref_jd = start_jd_geo(jd, lng);
     calc_transitions_from_source_refs_altitude(ref_jd, ipl.to_key(), GeoPos::simple(lat, lng))
   } else {
-    calc_transition_set_fast(jd, ipl, lat, lng)
+    calc_transition_set_fast(jd, ipl, lat, lng, mode)
   }
 }
 
-pub fn calc_transition_sun(jd: f64, geo: GeoPos, get_prev_next: bool) -> ExtendedTransitionSet {
-  calc_transition_set_extended(jd, Bodies::Sun, geo.lat, geo.lng, get_prev_next)
+pub fn calc_transition_sun(jd: f64, geo: GeoPos, get_prev_next: bool, mode: TransitionMode) -> ExtendedTransitionSet {
+  calc_transition_set_extended(jd, Bodies::Sun, geo.lat, geo.lng, get_prev_next, mode)
 }
 
-pub fn calc_transition_sets_sun(jd: f64, days: u16, geo: GeoPos) -> Vec<ExtendedTransitionSet> {
+pub fn calc_transition_sets_sun(jd: f64, days: u16, geo: GeoPos, mode: TransitionMode) -> Vec<ExtendedTransitionSet> {
   let mut sets: Vec<ExtendedTransitionSet> = Vec::new();
   let mut prev_set_jd = 0f64;
   let mut next_rise_jd = 0f64;
@@ -507,7 +557,7 @@ pub fn calc_transition_sets_sun(jd: f64, days: u16, geo: GeoPos) -> Vec<Extended
   let mut prev_up_over = false;
   for i in 0..days {
     let ref_jd = jd + i as f64;
-    let mut row = calc_transition_sun(ref_jd, geo, get_prev_next);
+    let mut row = calc_transition_sun(ref_jd, geo, get_prev_next, mode);
     if row.next_rise > 0f64 {
       next_rise_jd = row.next_rise;
     }
@@ -555,11 +605,11 @@ pub fn calc_transition_sets_sun(jd: f64, days: u16, geo: GeoPos) -> Vec<Extended
   sets
 }
 
-pub fn calc_transitions_sun(jd: f64, days: u16, geo: GeoPos) -> Vec<KeyNumValue> {
+pub fn calc_transitions_sun(jd: f64, days: u16, geo: GeoPos, mode: TransitionMode) -> Vec<KeyNumValue> {
   let mut sets: Vec<KeyNumValue> = Vec::new();
   for i in 0..days {
     let ref_jd = jd + i as f64;
-    let items = calc_transition_set_alt(ref_jd, Bodies::Sun, geo.lat, geo.lng).to_key_nums();
+    let items = calc_transition_set_alt(ref_jd, Bodies::Sun, geo.lat, geo.lng, mode).to_key_nums();
     for item in items {
       sets.push(item);
     }
@@ -567,31 +617,33 @@ pub fn calc_transitions_sun(jd: f64, days: u16, geo: GeoPos) -> Vec<KeyNumValue>
   sets
 }
 
-pub fn calc_transition_moon(jd: f64, geo: GeoPos, get_prev_next: bool) -> ExtendedTransitionSet {
-  calc_transition_set_extended(jd, Bodies::Moon, geo.lat, geo.lng, get_prev_next)
+pub fn calc_transition_moon(jd: f64, geo: GeoPos, get_prev_next: bool, mode: TransitionMode) -> ExtendedTransitionSet {
+  calc_transition_set_extended(jd, Bodies::Moon, geo.lat, geo.lng, get_prev_next, mode)
 }
 
 /* pub fn calc_transition_body(jd: f64, ipl: Bodies, geo: GeoPos) -> TransitionSet {
   calc_transition_set(jd, ipl, geo.lat, geo.lng)
 } */
 
-pub fn next_rise(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64) -> f64 {
+pub fn next_rise(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64, mode: TransitionMode) -> f64 {
+  let (alignment, no_refrac) = mode.to_options();
   rise_trans(
     tjd_ut,
     ipl,
     lat,
     lng,
-    TransitionParams::center_disc_rising_rise(),
+    TransitionParams::rise(alignment, no_refrac),
   )
 }
 
-pub fn next_set(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64) -> f64 {
+pub fn next_set(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64, mode: TransitionMode) -> f64 {
+  let (alignment, no_refrac) = mode.to_options();
   rise_trans(
     tjd_ut,
     ipl,
     lat,
     lng,
-    TransitionParams::center_disc_rising_set(),
+    TransitionParams::set(alignment, no_refrac),
   )
 }
 
@@ -623,16 +675,6 @@ pub fn next_mc(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64) -> f64 {
 
 pub fn next_ic(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64) -> f64 {
   rise_trans(tjd_ut, ipl, lat, lng, TransitionParams::ic())
-}
-
-pub fn next_rise_normal(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64, center_disc: bool) -> f64 {
-  let tp = if center_disc { TransitionParams::center_disc_rising_rise() } else { TransitionParams::rise_normal() };
-  rise_trans(tjd_ut, ipl, lat, lng, tp)
-}
-
-pub fn next_set_normal(tjd_ut: f64, ipl: Bodies, lat: f64, lng: f64, center_disc: bool) -> f64 {
-  let tp = if center_disc { TransitionParams::center_disc_rising_set() } else { TransitionParams::set_normal() };
-  rise_trans(tjd_ut, ipl, lat, lng, tp)
 }
 
 pub fn longitude_to_solar_time_offset_jd(lng: f64) -> f64 {
@@ -671,14 +713,14 @@ pub fn start_jd_geo_tz(jd: f64, lng: f64, tz_offset: Option<i32>) -> f64 {
   start_jd_geo(jd, lng_offset)
 }
 
-pub fn get_transition_sets(jd: f64, keys: Vec<&str>, geo: GeoPos) -> Vec<KeyNumValueSet> {
+pub fn get_transition_sets(jd: f64, keys: Vec<&str>, geo: GeoPos, mode: TransitionMode) -> Vec<KeyNumValueSet> {
   let mut transit_sets: Vec<KeyNumValueSet> = Vec::new();
   for key in keys {
     let tr_set: Vec<KeyNumValue> = match key {
       "su" | "mo" => {
-        calc_transition_set_extended(jd, Bodies::from_key(key), geo.lat, geo.lng, true).to_key_nums()
+        calc_transition_set_extended(jd, Bodies::from_key(key), geo.lat, geo.lng, true, mode).to_key_nums()
       }
-      _ => calc_transition_set(jd, Bodies::from_key(key), geo.lat, geo.lng).to_key_nums(),
+      _ => calc_transition_set(jd, Bodies::from_key(key), geo.lat, geo.lng, mode).to_key_nums(),
     };
     transit_sets.push(KeyNumValueSet::new(key, tr_set));
   }
@@ -690,6 +732,7 @@ pub fn get_transition_sets_extended(
   keys: Vec<String>,
   geo: GeoPos,
   days: u16,
+  mode: TransitionMode
 ) -> Vec<KeyNumValueSet> {
   let mut transit_sets: Vec<KeyNumValueSet> = Vec::new();
   for key in keys {
@@ -698,7 +741,7 @@ pub fn get_transition_sets_extended(
       let ref_jd = jd + i as f64;
       if key.len() == 2 {
         let mut tr_set_day =
-        calc_transition_set_alt(ref_jd, Bodies::from_key(key.as_str()), geo.lat, geo.lng)
+        calc_transition_set_alt(ref_jd, Bodies::from_key(key.as_str()), geo.lat, geo.lng, mode)
           .to_key_nums();
         tr_set.append(&mut tr_set_day);
       }
@@ -730,6 +773,7 @@ pub fn to_sun_rise_sets(
   geo: GeoPos,
   offset_tz_secs: Option<i32>,
   iso_mode: bool,
+  mode: TransitionMode
 ) -> (
   AltTransitionValueSet,
   AltTransitionValueSet,
@@ -737,9 +781,9 @@ pub fn to_sun_rise_sets(
   i32,
 ) {
   let sun = Bodies::from_key("su");
-  let current = calc_transition_set_extended(jd, sun, geo.lat, geo.lng, false);
-  let prev = calc_transition_set_alt(jd - 1f64, sun, geo.lat, geo.lng);
-  let next = calc_transition_set_alt(jd + 1f64, sun, geo.lat, geo.lng);
+  let current = calc_transition_set_extended(jd, sun, geo.lat, geo.lng, false, mode);
+  let prev = calc_transition_set_alt(jd - 1f64, sun, geo.lat, geo.lng, mode);
+  let next = calc_transition_set_alt(jd + 1f64, sun, geo.lat, geo.lng, mode);
   let offset_secs = if offset_tz_secs != None {
     offset_tz_secs.unwrap()
   } else {

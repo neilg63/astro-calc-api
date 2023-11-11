@@ -7,7 +7,6 @@ use super::{
   settings::ayanamshas::*,
   traits::*,
   rise_set_phases::get_pheno_result,
-  transposed_transitions::calc_transitions_from_source_refs_minmax,
 };
 use libswe_sys::sweconst::{Bodies, OptionalFlag};
 use libswe_sys::swerust::handler_swe03::*;

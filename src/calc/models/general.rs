@@ -173,6 +173,23 @@ pub enum FlexiValue {
   StringValue(KeyStringValue),
 }
 
+impl FlexiValue {
+  pub fn to_key_string(&self) -> KeyStringValue {
+    match self {
+      FlexiValue::NumValue(item) => KeyStringValue::new(&item.key, &item.value.to_string()),
+      FlexiValue::StringValue(item) => item.to_owned(),
+    }
+  }
+}
+
+pub fn extract_flexi_value_string(items: &Vec<FlexiValue>, key: &str) -> Option<String> {
+  if let Some(item) = items.into_iter().find(|fv| fv.to_key_string().key == key.to_owned()) {
+    Some(item.to_key_string().value)
+  } else {
+    None
+  }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct KeyFlexiValueSet {
   pub key: String,

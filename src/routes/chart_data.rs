@@ -60,6 +60,7 @@ async fn body_positions(params: Query<InputOptions>) -> impl Responder {
   let ayanamsha = get_ayanamsha_value(date.jd, aya.as_str());
   let aya_offset = if sidereal { ayanamsha } else { 0f64 };
   let iso_mode: bool = params.iso.clone().unwrap_or(0) > 0;
+  let mode = TransitionMode::from_u8(params.mode.unwrap_or(3));
   let longitudes = match eq {
     1 => match topo {
       1 => get_body_longitudes_eq_topo(date.jd, geo, aya_offset, &to_str_refs(&keys)),
@@ -71,8 +72,8 @@ async fn body_positions(params: Query<InputOptions>) -> impl Responder {
     },
   };
   let valid = longitudes.len() > 0;
-  let sun_rise_sets = calc_transition_sun(date.jd, geo, true).to_value_set(iso_mode);
-  let moon_rise_sets = calc_transition_moon(date.jd, geo, true).to_value_set(iso_mode);
+  let sun_rise_sets = calc_transition_sun(date.jd, geo, true, mode).to_value_set(iso_mode);
+  let moon_rise_sets = calc_transition_moon(date.jd, geo, true, mode).to_value_set(iso_mode);
   let coord_system = build_coord_system_label(eq, topo > 0);
   thread::sleep(micro_interval);
   Json(
@@ -109,6 +110,7 @@ pub async fn chart_data_flexi(params: Query<InputOptions>) -> impl Responder {
   let keys = body_keys_str_to_keys_or(key_string, def_keys);
   let iso_mode: bool = params.iso.clone().unwrap_or(0) > 0;
   let sidereal: bool = params.sid.unwrap_or(0) > 0;
+  let mode = TransitionMode::from_u8(params.mode.unwrap_or(3));
   let ayanamsha = get_ayanamsha_value(date.jd, aya.as_str());
   let aya_offset = if sidereal { ayanamsha } else { 0f64 };
   let data = match topo {
@@ -158,7 +160,7 @@ pub async fn chart_data_flexi(params: Query<InputOptions>) -> impl Responder {
   let rise_set_jds: Vec<KeyNumValueSet> = if show_rise_sets {
     let tr_keys_string = params.trbs.clone().unwrap_or("".to_owned());
     let tr_keys = if tr_keys_string.len() > 1 { body_keys_str_to_keys_or(tr_keys_string, vec![]) } else { keys.clone() };
-    get_transition_sets(date.jd, to_str_refs(&tr_keys), geo)
+    get_transition_sets(date.jd, to_str_refs(&tr_keys), geo, mode)
   } else {
     Vec::new()
   };

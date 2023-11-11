@@ -103,6 +103,8 @@ Query string parameters:
 - it: 1 = show indian time units with progress since the start of the current day period, 0 = do not show indian time units
 - ph: 1 = show planetary phenomena for the referenced time unless it is shown inline with celestial body data, 0 = no extra phenomena unless eq == 4
 - hsys: Comma-separated list of house system letters or `all` for all systems, default W (whole house system)
+- ct: 0 = default. 1 = show rise/set times for the selected bodies
+- mode: Alignment and refraction options for rise / set times. See notes below for all options.
 - aya: Comma-separated list of available ayanamshas (see below). These are added as separate data-set and should be applied in a post processing stage via simple subtraction from the lng, ascendant or rectAscension values, which are always tropical (they may automatically applied in /positions)
 - retro: 1: show retrograde and peak stations of the main planets, 0: do not show planet stations
 
@@ -112,6 +114,15 @@ Query string parameters:
 - loc: current lat,lng(,alt) coordinates
 - bodies: comma-separated list of required bodies, all or core")
 - iso: 0 = show julian days (default), 1 = show ISO datetime UTC
+- mode: Alignment and refraction options for rise / set times. The default is *center disc* with refraction. Without refraction, the rise times may be 2 to 5 minutes later and set times 2 to 5 minutes earlier.
+  - 0 => None / unadjusted
+  - 1 => No Refraction only
+  - 2 => Centre disc + no refraction
+  - 3 => Centre disc only (default)
+  - 4 => Bottom disc + no refraction
+  - 5 => Bottom disc only
+  - 6 => Fixed disc + no refraction
+  - 7 => Fixed disc only
 
 ### GET /sun-rise-set-times
 
@@ -121,7 +132,8 @@ Query string parameters:
 - loc: current lat,lng(,alt) coordinates
 - days: number of days worth of transitions, default 28, e.g. 366 will return a whole year")
 - iso: 0 = show julian days (default), 1 = show ISO datetime UTC
-- mode: 0,1 (default) show as dailt transition sets with max, min as well as next_rise/next_set and prev_set/prev_rise, 2: show as linear sequence of transition events
+- mode: Alignment and refraction options for rise / set times. See notes above for all options.
+- full: 0,1 (default) show as dailt transition sets with max, min as well as next_rise/next_set and prev_set/prev_rise, 2: show as linear sequence of transition events
 
 Calculate the alternating rise, set, IC and MC times as well and min. and max. altitudes of the sun over 1 or more days.  
 
@@ -133,6 +145,7 @@ Calculate the alternating rise, set, IC and MC times as well and min. and max. a
 - loc2: historical lat,lng(,alt) coordinates
 - bodies: comma-separated list of required bodies, all or core"
 - iso: 0 = show julian days (default), 1 = show ISO datetime UTC
+- mode: Alignment and refraction options for natural / current rise / set times. See notes above for all options.
 
 Calculate the current transitions of the referenced bodies and their projected current transition times based on their historical positions. dt2 and loc2 refer the time and place of a historical event (e.g. birth). The rise/set times are recalculated based on their historic positions.
 
@@ -155,6 +168,7 @@ Query string parameters:
 - loc: current lat,lng(,alt) coordinates
 - bodies: comma-separated list of required bodies, all or core
 - iso: 0 = show julian days (default), 1 = show ISO datetime UTC
+- mode: Alignment and refraction options for rise / set times. See notes above for all options.
 
 ### GET /test-swe-rise
 
@@ -165,7 +179,7 @@ If the MC/IC values are zero, there may be an interopability issue. In this the 
 - loc: current lat,lng(,alt) coordinates
 - bodies: comma-separated list of required bodies, all or core
 - iso: 0 = show julian days (default), 1 = show ISO datetime UTC
-- mode: 0 = without centre disc, 1 with centre disc. (mainly affects sun / moon rise/set times)
+- mode: Alignment and refraction options for rise / set times. See notes above for all options.
 
 ### GET /pheno
 

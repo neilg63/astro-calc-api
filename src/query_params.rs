@@ -33,7 +33,7 @@ pub struct InputOptions {
   pub iso: Option<u8>, // 0 show JD, 1 show ISO UTC
   //pub offset: Option<i32>, // offset is seconds from UTC
   pub tzs: Option<i32>, // offset in seconds from UTC
-  pub daytime: Option<u8>, // 1 use daytime variants, 0 use night-time variants
+  pub full: Option<u8>, // 0 default, 1 full / extended
   pub num: Option<u32>, // integer number
   pub orb: Option<f64>, // reference degree two
   pub mode: Option<u8>, // response mode, depends on endpoint
