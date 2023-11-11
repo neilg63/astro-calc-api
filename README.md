@@ -172,8 +172,7 @@ Query string parameters:
 
 ### GET /test-swe-rise
 
-This lets you test the Swiss Ephemeris method swe_rise_trans with and without the "centre disc" flag (SE_BIT_DISC_CENTER)
-If the MC/IC values are zero, there may be an interopability issue. In this the wraoper function will default to the mean between rise and set times, which are close to the MC/IC values for most bodies, except for the moon.
+This lets you test the Swiss Ephemeris method swe_rise_trans with centre disc, bottom disc and fixed disc aligment with and without refraction. The default mode is *centre disc only*, which means *with refraction*. 
 
 - dt: referenced date-time
 - loc: current lat,lng(,alt) coordinates
