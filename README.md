@@ -105,8 +105,8 @@ Query string parameters:
 - hsys: Comma-separated list of house system letters or `all` for all systems, default W (whole house system)
 - ct: 0 = default. 1 = show rise/set times for the selected bodies
 - mode: Alignment and refraction options for rise / set times. See notes below for all options.
-- aya: Comma-separated list of available ayanamshas (see below). These are added as separate data-set and should be applied in a post processing stage via simple subtraction from the lng, ascendant or rectAscension values, which are always tropical (they may automatically applied in /positions)
-- retro: 1: show retrograde and peak stations of the main planets, 0: do not show planet stations
+- aya: Comma-separated list of available ayanamshas (see below). These are added as separate data-set and should be applied in a post processing stage via simple subtraction from the lng or ascendant values, which are always tropical (they may be automatically applied in /positions)
+- retro: 1: show retrograde and peak stations of the main planets, 0: do not show planet stations (default)
 
 ### GET /rise-set-times
 
