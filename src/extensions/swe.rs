@@ -2,6 +2,7 @@ use std::os::raw::{c_char, c_double, c_int};
 use serde::{Serialize, Deserialize};
 use libswe_sys::sweconst::Bodies;
 use crate::calc::settings::ayanamshas::*;
+use crate::set_ephemeris_path;
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct AltitudeSet {
@@ -143,20 +144,31 @@ pub fn azalt(tjd_ut: f64, is_equal: bool, geo_lat: f64, geo_lng: f64, lng: f64, 
 pub fn get_ayanamsha(tjd_ut: f64, mode: Ayanamsha) -> f64 {
   let mut daya: [f64; 1] = [0.0; 1];
   let mut serr = [0; 255];
-  set_sid_mode(mode.as_i32());
-  let result = unsafe {
-      let p_daya = daya.as_mut_ptr();
-      let p_serr = serr.as_mut_ptr();
-      let status = swe_get_ayanamsa_ex_ut(
-          tjd_ut,
-          65536i32, // SEFLG_SIDEREAL
-          p_daya,
-          p_serr
-      );
-      status
-  };
-  //set_sid_mode(0);
-  result
+  let iflag = mode.as_i32();
+  if iflag > 0 {
+    match mode {
+      Ayanamsha::TrueCitra => {
+        set_ephemeris_path();
+      },
+      _ => ()
+    };
+    set_sid_mode(iflag);
+    let result = unsafe {
+        let p_daya = daya.as_mut_ptr();
+        let p_serr = serr.as_mut_ptr();
+        let status = swe_get_ayanamsa_ex_ut(
+            tjd_ut,
+            65536i32, // SEFLG_SIDEREAL
+            p_daya,
+            p_serr
+        );
+        status
+    };
+    //set_sid_mode(0);
+    result
+  } else {
+    0f64
+  }
 }
 
 pub fn set_topo(lat: f64, lng: f64, alt: f64) {

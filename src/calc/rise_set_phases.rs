@@ -702,17 +702,6 @@ pub fn start_jd_geo(jd: f64, lng: f64) -> f64 {
   }
 }
 
-/**
- * Used by test function to estimaye time zone offset based on longitude
- */
-pub fn start_jd_geo_tz(jd: f64, lng: f64, tz_offset: Option<i32>) -> f64 {
-  let lng_offset = match tz_offset {
-    Some(tzs) => tzs as f64 / 240f64,
-    _ => lng,
-  };
-  start_jd_geo(jd, lng_offset)
-}
-
 pub fn get_transition_sets(jd: f64, keys: Vec<&str>, geo: GeoPos, mode: TransitionMode) -> Vec<KeyNumValueSet> {
   let mut transit_sets: Vec<KeyNumValueSet> = Vec::new();
   for key in keys {
@@ -798,6 +787,17 @@ pub fn to_sun_rise_sets(
 }
 
 
+/**
+ * Used by test function to estimate time zone offset based on longitude
+ */
+#[cfg(test)] 
+pub fn start_jd_geo_tz(jd: f64, lng: f64, tz_offset: Option<i32>) -> f64 {
+  let lng_offset = match tz_offset {
+    Some(tzs) => tzs as f64 / 240f64,
+    _ => lng,
+  };
+  start_jd_geo(jd, lng_offset)
+}
 
 #[cfg(test)]
 mod tests {

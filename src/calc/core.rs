@@ -267,27 +267,6 @@ pub fn calc_body_jd_geo(jd: f64, key: &str, aya_offset: f64) -> GrahaPos {
 }
 
 /*
- Get set of tropical geocentric coordinates for one celestial body
-*/
-/* pub fn calc_body_positions_jd_geo(
-  jd_start: f64,
-  key: &str,
-  days: i32,
-  num_per_day: f64,
-) -> Vec<GrahaPosItem> {
-  let mut items: Vec<GrahaPosItem> = Vec::new();
-  let max_f64 = floor(days as f64 * num_per_day, 0);
-  let max = max_f64 as i32;
-  let increment = 1f64 / num_per_day;
-  for i in 0..max {
-    let curr_jd = jd_start + (i as f64 * increment);
-    let graha_pos = calc_body_jd_geo(curr_jd, key, 0f64);
-    items.push(GrahaPosItem::new(curr_jd, graha_pos));
-  }
-  items
-}
- */
-/*
  Get set of tropical geocentric coordinates for groups of celestial bodies
 */
 pub fn calc_bodies_positions_jd(
@@ -556,46 +535,12 @@ pub fn calc_altitude_object(
   calc_altitude(tjd_ut, is_equal, geo_lat, geo_lng, pos.lng, pos.lat)
 }
 
-/*
-* reconstructed from Lahiri by calculating proportional differences over 200 years. Native C implementation may be bug-prone
-* on some platforms.
-*/
-pub fn calc_true_citra(jd: f64) -> f64 {
-  let jd1 = 2422324.5f64;
-  let p1 = 0.9992925739019888f64;
-  let jd2 = 2458849.5f64;
-  let p2 = 0.99928174751934f64;
-  let jd3 = 2495373.5f64;
-  let p3 = 0.9992687765534588f64;
-  let diff_jd2 = jd - jd2;
-  let before2020 = diff_jd2 < 0f64;
-  let dist = if before2020 {
-    (0f64 - diff_jd2) / (jd2 - jd1)
-  } else {
-    diff_jd2 / (jd3 - jd2)
-  };
-  let diff_p = if before2020 { p2 - p1 } else { p3 - p2 };
-  let multiple = if before2020 {
-    p2 - (diff_p * dist)
-  } else {
-    p2 + (diff_p * dist)
-  };
-  get_ayanamsha_value_raw(jd, "lahiri") * multiple
-}
 
-pub fn get_ayanamsha_value_raw(jd: f64, key: &str) -> f64 {
+pub fn get_ayanamsha_value(jd: f64, key: &str) -> f64 {
   let aya_flag = Ayanamsha::from_key(key);
   get_ayanamsha(jd, aya_flag)
 }
 
-pub fn get_ayanamsha_value(jd: f64, key: &str) -> f64 {
-  let aya_flag = Ayanamsha::from_key(key);
-  match aya_flag {
-    Ayanamsha::Tropical => 0f64,
-    Ayanamsha::TrueCitra => calc_true_citra(jd),
-    _ => get_ayanamsha(jd, aya_flag),
-  }
-}
 
 pub fn get_ayanamsha_values(jd: f64, keys: Vec<&str>) -> Vec<KeyNumIdValue> {
   let mut items: Vec<KeyNumIdValue> = Vec::new();

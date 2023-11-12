@@ -85,10 +85,14 @@ fn get_port_no() -> u16 {
   }
 }
 
-pub fn reset_ephemeris_path() {
-  let micro_interval = time::Duration::from_millis(10);
+pub fn set_ephemeris_path() {
   let ep = get_ephemeris_path();
   set_ephe_path(ep.as_str());
+}
+
+pub fn reset_ephemeris_path() {
+  let micro_interval = time::Duration::from_millis(10);
+  set_ephemeris_path();
   thread::sleep(micro_interval);
 }
 
