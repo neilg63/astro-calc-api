@@ -1,4 +1,4 @@
-# astro-calc
+# astro-calc-api
 
 This application extends [Stéphane Bressani's](https://github.com/stephaneworkspace/libswe-sys) Rust bridge for Swiss Ephemeris calculation engine to support:
 
