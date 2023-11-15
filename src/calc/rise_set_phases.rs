@@ -19,9 +19,9 @@ use serde::{Deserialize, Serialize};
 use strum_macros::ToString;
 
 pub const MAX_POLAR_DAY: i32 = 183;
+pub const NEAR_POLE_BOUNDARY:f64 = 66.0;
 pub const MIN_JD: f64 = 1000f64;
 pub const UP_DOWN_TOLERANCE: f64 = 0.5f64;
-
 
 pub enum TransitionParams {
   Rise = 1,
@@ -374,7 +374,7 @@ impl TransitionSet {
 }
 
 pub fn is_near_poles(lat: f64) -> bool {
-  lat >= 60f64 || lat <= -60f64
+  lat >= NEAR_POLE_BOUNDARY || lat <= (0f64 - NEAR_POLE_BOUNDARY)
 }
 
 pub fn calc_transition_set_extended_fast(
