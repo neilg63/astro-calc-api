@@ -23,5 +23,5 @@ chrono = { version = "0.4.31", features = ["serde"] }
 ordered-float = { version = "3.0", default-features = false }
 clap = { version = "3.2.5", features = ["derive"] }
 rand = "0.8.5"
-julian_day_converter = "0.2.1"
+julian_day_converter = "0.3.0"
 
