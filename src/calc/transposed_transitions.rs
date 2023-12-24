@@ -293,12 +293,11 @@ pub fn calc_transposed_object_transitions(
    
     if rise.jd <= 0f64 {
       let rise_jd = if mc.value > 0f64 { 0f64 } else { mc.jd - diff };
-      rise = AltitudeSample::new("rise", 0f64, rise_jd, mc.value - ic.value);
-      
+      rise = AltitudeSample::new("rise", 0f64, rise_jd, 0f64);      
     }
     if set.jd <= 0f64 {
-      let set_jd = if mc.value > 0f64 { mc.jd - diff } else { 0f64 };
-      set = AltitudeSample::new("set", 0f64, set_jd, mc.value - ic.value);
+      let set_jd = if ic.value < 0f64 { ic.jd - diff } else { 0f64 };
+      set = AltitudeSample::new("set", 0f64, set_jd, 0f64);
     }
   }
   if mc.value >= 0f64 && mc.value < UP_DOWN_TOLERANCE && set.jd <= MIN_JD && rise.jd > MIN_JD {
