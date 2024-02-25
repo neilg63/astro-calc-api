@@ -273,11 +273,13 @@ const adjustedLongitude = subtract360(tropicalLongitude);
 
 Julian day to unix time:
 
-```
+```javascript
 
 // Julian day to standard unix timestamp in seconds with 1970-01-01 00:00:00 UTC equal to 2440587.5 Julian days
+const JULIAN_DAY_UNIX_EPOCH = 2440587.5; // 1970-01-01T00:00:00 UTC
+
 const julianDayToUnixTime = (jd = 0) => {
-  return (jd - 2440587.5) * 24 * 60 * 60;
+  return (jd - JULIAN_DAY_UNIX_EPOCH) * 24 * 60 * 60;
 };
 
 // Julian day to millisecond timestamp as used by JavaScript and accepted as the first parameter of the Date() constructor.
