@@ -48,11 +48,11 @@ Path parameters
 
 GET /date
 
-Show date and time variants including Indian time units (ghati, vighati and lipta) and progression from sunrise to sunrise with extended sun transition data.
+Show date and time variants with current, previous and next sunrise and sunset data.
 
 - dt: Date (ISO 8601 UTC)
 - loc: lat,lng(,alt) coordinates as decimals, e.g. 45.1,13.2 is 45.1 N and 13.2º S, -21.75,-45.21 is 21º S and 45.21º W
-- iso: 0 = julian days, 1 ISO UTC
+- iso: 0 = julian days, 1 ISO UTC, Show sunrise and sunset time ISO 8601 UTC
 
 ### GET /positions
 
@@ -60,14 +60,15 @@ Longitudes of referenced celestial bodies and the ascendant. This may power simp
 
 Query string parameters:
 
-- dt: Date
-- loc: lat,lng(,alt) coordinates
-- bodies: comma-separated list of required bodies, all or core
-- topo: 0 = geocentric, 1 topocentric
-- eq: 0 = ecliptic, 1 equatorial
-- iso: 0 = julian days (transition times), 1 ISO UTC
-- sid: 0 = never apply specified ayanamsha (defaylt), 1 apply ayanamsha specified by aya in ecliptic mode
-- aya: two letter or full machine name for the ayanamsha to be applied when sid=1 and eq=0
+- **dt**: Date, must be UTC as 2024-02-28T12:00:00
+- **jd**: Julian Day as a decimal.
+- **loc**: lat,lng(,alt) coordinates
+- **bodies**: comma-separated list of required bodies, all or core
+- **topo**: 0 = geocentric, 1 topocentric
+- **eq**: 0 = ecliptic, 1 equatorial
+- **iso**: 0 = julian days (transition times), 1 ISO UTC
+- **sid**: 0 = never apply specified ayanamsha (defaylt), 1 apply ayanamsha specified by *aya* in ecliptic mode
+- **aya**: two letter or full machine name for the ayanamsha to be applied when sid=1 and eq=0
 
 ### GET /progress
 
@@ -75,14 +76,15 @@ Progress of celestial body positions. This may power charts and 3D animations of
 
 Query string parameters:
 
-- dt: start date
-- loc: lat,lng(,alt) coordinates, required for topocentric
-- bodies: comma-separated list of required bodies, all or core
-- days: number of days worth of transitions, default 28, e.g. 366 will return a whole year
-- pd: number of samples per day, default 2, i.e. every 12 hours
-- dspan: number of days per sample, overrides pd above for longer spans, max 1000 samples
-- topo: 0 = geocentric, 1 topocentric
-- eq: 0 = ecliptic only, 1 equatorial only, 3 horizontal (2 = dual is not applicable)
+- **dt**: start date
+- **jd**: Julian Day as a decimal.
+- **loc**: lat,lng(,alt) coordinates, required for topocentric
+- **bodies**: comma-separated list of required bodies, all or core
+- **days**: number of days worth of transitions, default 28, e.g. 366 will return a whole year
+- **pd**: number of samples per day, default 2, i.e. every 12 hours
+- **dspan**: number of days per sample, overrides pd above for longer spans, max 1000 samples
+- **topo**: 0 = geocentric, 1 topocentric
+- **eq**: 0 = ecliptic only, 1 equatorial only, 3 horizontal (2 = dual is not applicable)
 
 ### GET /chart-data
 
@@ -90,23 +92,23 @@ Rich configurable set of astrological data for a given time and geolocation. May
 
 Query string parameters:
 
-- dt: Date
-- loc: lat,lng(,alt) coordinates
-- bodies: comma-separated list of 2-letter abbreviations for required bodies, all or core
-- topo: 0 = geocentric, 1 topocentric
-- eq:
+- **dt**: Data
+- **jd**: Julian Day as a decimal.
+- **loc**: lat,lng(,alt) coordinates
+- **bodies**: comma-separated list of 2-letter abbreviations for required bodies, all or core
+- **topo**: 0 = geocentric, 1 topocentric
+- **eq**:
   - 0 = ecliptic only,
   - 1 equatorial only,
   - 2 both ecliptic and equatorial,
   - 3 both with altitude, azimuth and extra planetary phenomena such as magnitude and phase angle. The azimuth and altitude will only be shown in topocentric mode.
   - 4 With extra planetary phenomena such as magnitude and phase angle as an inline subset.
-- it: 1 = show indian time units with progress since the start of the current day period, 0 = do not show indian time units
-- ph: 1 = show planetary phenomena for the referenced time unless it is shown inline with celestial body data, 0 = no extra phenomena unless eq == 4
-- hsys: Comma-separated list of house system letters or `all` for all systems, default W (whole house system)
-- ct: 0 = default. 1 = show rise/set times for the selected bodies
-- mode: Alignment and refraction options for rise / set times. See notes below for all options.
-- aya: Comma-separated list of available ayanamshas (see below). These are added as separate data-set and should be applied in a post processing stage via simple subtraction from the lng or ascendant values, which are always tropical (they may be automatically applied in /positions)
-- retro: 1: show retrograde and peak stations of the main planets, 0: do not show planet stations (default)
+- **ph**: 1 = show planetary phenomena for the referenced time unless it is shown inline with celestial body data, 0 = no extra phenomena unless eq == 4
+- **hsys**: Comma-separated list of house system letters or `all` for all systems, default W (whole house system)
+- **ct**: 0 = default. 1 = show rise/set times (current transitions) for the selected bodies
+- **mode**: Alignment and refraction options for rise / set times. See notes below for all options.
+- **aya**: Comma-separated list of available ayanamshas (see below). These are added as separate data-set and should be applied in a post processing stage via simple subtraction from the lng or ascendant values, which are always tropical (they may be automatically applied in /positions)
+- **retro**: 1: show retrograde and peak stations of the main planets, 0: do not show planet stations (default)
 
 ### GET /rise-set-times
 
