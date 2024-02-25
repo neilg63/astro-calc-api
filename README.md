@@ -20,9 +20,9 @@ The API is publicly available at [astroapi.findingyou.co](https://astroapi.findi
 
 ## Environment Variables
 
-The application will detect the two key configuration options from a .env file in the launch directory. By default, this is in the project root where the production executable is at `target/release/astro_calc`.
+The application will detect the two key configuration options from a .env file in the launch directory. By default, this is in the project root where the production executable is at `target/release/astro_calc_api`.
 
-You may set the following options:
+You may set the following options as shown in *sample.env*:
 
 - `sweph_path=/path-to-swiss-ephemeris-data-directory`
 - `port=9999`
