@@ -1,6 +1,7 @@
 use crate::calc::rise_set_phases::{UP_DOWN_TOLERANCE, MIN_JD};
 use super::models::general::{KeyNumValue, KeyNumValueSet, CoordinateSystem};
 use super::models::{geo_pos::*, graha_pos::*};
+use super::rise_set_phases::CentricMode;
 use super::{
   core::{calc_altitude, calc_body_jd_geo, calc_body_jd_topo},
   rise_set_phases::{get_pheno_result, AltTransitionSet, TransitionSet},
@@ -347,7 +348,7 @@ pub fn build_transposed_transition_set_from_pos(
   Calculate transposed transitions from a set of historic body references with a different time and place
 */
 pub fn calc_transposed_graha_transitions_from_source_refs(
-  mode: &str,
+  mode: CentricMode,
   jd_start: f64,
   geo: GeoPos,
   jd_historic: f64,
@@ -358,7 +359,7 @@ pub fn calc_transposed_graha_transitions_from_source_refs(
   let mut key_num_sets: Vec<KeyNumValueSet> = Vec::new();
   for key in keys {
     let graha_pos = match mode {
-      "topo" => calc_body_jd_topo(jd_historic, key.as_str(), geo_historic, 0f64),
+      CentricMode::Topo => calc_body_jd_topo(jd_historic, key.as_str(), geo_historic, 0f64),
       _ => calc_body_jd_geo(jd_historic, key.as_str(), 0f64),
     };
     let tr_key_set =
@@ -458,7 +459,7 @@ pub fn calc_transposed_graha_transitions_from_source_refs_topo(
   days: u16,
 ) -> Vec<KeyNumValueSet> {
   calc_transposed_graha_transitions_from_source_refs(
-    "topo",
+    CentricMode::Topo,
     jd_start,
     geo,
     jd_historic,
@@ -480,7 +481,7 @@ pub fn calc_transposed_graha_transitions_from_source_refs_geo(
   days: u16,
 ) -> Vec<KeyNumValueSet> {
   calc_transposed_graha_transitions_from_source_refs(
-    "geo",
+    CentricMode::Geo,
     jd_start,
     geo,
     jd_historic,

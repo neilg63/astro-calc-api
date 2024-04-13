@@ -1,3 +1,4 @@
+use crate::calc::math_funcs::subtract_360;
 use crate::calc::settings::{ayanamshas::match_ayanamsha_num, house_systems::houses_as_key_map};
 use crate::calc::{
   core::*,
@@ -16,6 +17,7 @@ use actix_web::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::*;
+use std::collections::HashMap;
 use std::{thread, time};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -61,24 +63,131 @@ async fn body_positions(params: Query<InputOptions>) -> impl Responder {
   let aya_offset = if sidereal { ayanamsha } else { 0f64 };
   let iso_mode: bool = params.iso.clone().unwrap_or(0) > 0;
   let mode = TransitionMode::from_u8(params.mode.unwrap_or(3));
-  let longitudes = match eq {
-    1 => match topo {
-      1 => get_body_longitudes_eq_topo(date.jd, geo, aya_offset, &to_str_refs(&keys)),
-      _ => get_body_longitudes_eq_geo(date.jd, geo, aya_offset, &to_str_refs(&keys)),
-    },
-    _ => match topo {
-      1 => get_body_longitudes_topo(date.jd, geo, aya_offset, &to_str_refs(&keys)),
-      _ => get_body_longitudes_geo(date.jd, geo, aya_offset, &to_str_refs(&keys)),
-    },
-  };
+  let longitudes = get_body_longitudes_contextual(date.jd, geo, eq, topo, aya_offset, &to_str_refs(&keys));
   let valid = longitudes.len() > 0;
   let sun_rise_sets = calc_transition_sun(date.jd, geo, true, mode).to_value_set(iso_mode);
   let moon_rise_sets = calc_transition_moon(date.jd, geo, true, mode).to_value_set(iso_mode);
   let coord_system = build_coord_system_label(eq, topo > 0);
+
   thread::sleep(micro_interval);
   Json(
     json!({ "valid": valid, "date": date, "geo": geo, "longitudes": longitudes, "ayanamsha": { "key": aya_key, "value": ayanamsha, "applied": sidereal }, "coordinateSystem": coord_system, "sunRiseSets": sun_rise_sets, "moonRiseSets": moon_rise_sets }),
   )
+}
+
+
+#[get("/ascendant")]
+async fn ascendant_progress(params: Query<InputOptions>) -> impl Responder {
+  reset_ephemeris_path();
+  let micro_interval = time::Duration::from_millis(20);
+
+  let pd = params.pd.unwrap_or(24);
+  let days_val = params.days.unwrap_or(1);
+  let num_days = if days_val < 1 {
+    1
+  } else if days_val > 366 {
+    366
+  } else {
+    days_val
+  };
+  let day_span = num_days as f64;
+  let date = to_date_object(&params);
+  let start_jd = date.jd - 0.5;
+  let end_jd = start_jd + day_span;
+  let start = DateInfo::new_from_jd(start_jd);
+  let end = DateInfo::new_from_jd(end_jd);
+  let geo = to_geopos_object(&params);
+  let aya: String = params.aya.clone().unwrap_or("tropical".to_string());
+  let sidereal: bool = params.sid.unwrap_or(0) > 0;
+  let aya_key = match_ayanamsha_key(aya.as_str());
+  let ayanamsha = get_ayanamsha_value(date.jd, aya.as_str());
+  let aya_offset = if sidereal { ayanamsha } else { 0f64 };
+  let num_items = pd as usize * num_days as usize;
+  let increment = 1f64 / pd as f64;
+  let zero_tolerance = increment / 32.0;
+  let mut current_index = -1;
+  let mut has_bodies = false;
+  let mut result: HashMap<&str, Value> = HashMap::new();
+  let mut mode_key = "none".to_string();
+  let mut valid = false;
+  let mut sun_moon_angle:Option<(f64, bool, u8)> = None;
+  let interval = json!({
+    "time": time_interval_format(increment),
+    "days": increment
+  });
+  if let Some(key_string) = params.bodies.clone() {
+    let keys = body_keys_str_to_keys_or(key_string, vec![]);
+    has_bodies = keys.len() > 0;
+    let eq = params.eq.unwrap_or(0);
+    let topo = params.topo.unwrap_or(0);
+    let mut positions: Vec<HashMap<String,f64>> = Vec::new();
+    if has_bodies {
+      let key_refs = to_str_refs(&keys);
+      let has_sun_and_moon = key_refs.contains(&"su") && key_refs.contains(&"mo");
+      for i in 0..num_items {
+        let ref_jd = start_jd + (increment * i as f64);
+        let body_set = get_body_longitudes_contextual(ref_jd, geo, eq, topo, aya_offset, &key_refs);
+        if current_index < 0 && (ref_jd - date.jd).abs() < zero_tolerance {
+          current_index = i as i32;
+          if has_sun_and_moon {
+            if let Some(moon_lng) = body_set.get("mo") {
+              if let Some(sun_lng) = body_set.get("su") {
+                sun_moon_angle = Some(calc_sun_moon_angle(*moon_lng, *sun_lng));
+              }
+            }
+            
+          }
+        }
+        positions.push(body_set);
+      }
+      result.insert("values", json!(positions));
+      valid = positions.len() >= pd as usize;
+      mode_key = build_coord_system_label(eq, topo > 0);
+    }
+  }
+  if !has_bodies {
+    let mut items: Vec<f64> = Vec::with_capacity(num_items);
+    for i in 0..num_items {
+      let ref_jd = start_jd + (increment * i as f64);
+      if current_index < 0 && (ref_jd - date.jd).abs() < zero_tolerance {
+        current_index = i as i32;
+      }
+      let asc_val = calc_ascendant(ref_jd, geo);
+      let asc_adjusted = subtract_360(asc_val, aya_offset);
+      items.push(asc_adjusted);
+    }
+    result.insert("values", json!(items));
+    valid = items.len() >= pd as usize;
+    mode_key = "ascendants".to_string();
+  }
+  // let mut result = json!({ "valid": valid, "mode": mode_key, "date": date, "start": start, "end": end, "interval": interval, "current_index": current_index , "geo": geo, "values": values, "ayanamsha": { "key": aya_key, "value": ayanamsha, "applied": sidereal } });
+  result.insert("valid", Value::Bool(valid));
+  result.insert("mode", Value::String(mode_key));
+  result.insert("geo", json!(geo));
+  result.insert("date", json!(date));
+  result.insert("start", json!(start));
+  result.insert("end", json!(end));
+  result.insert("interval", json!(interval));
+  result.insert("current_index", json!(current_index));
+  result.insert("ayanamsha", json!({ "key": aya_key, "value": ayanamsha, "applied": sidereal }));
+
+  if params.full.unwrap_or(0) > 0 {
+    let iso_mode = params.iso.unwrap_or(0) > 0;
+    let mode = TransitionMode::from_u8(params.mode.unwrap_or(3));
+    let sun_transitions_jd = calc_transitions_sun(date.jd, num_days, geo, mode);
+    let sun_transitions: Vec<FlexiValue> = sun_transitions_jd.iter().filter(|item| item.value != 0f64).map(|item| item.as_flexi_value(iso_mode)).collect();
+    if sun_transitions.len() > 0 {
+      result.insert("sunRiseSets", json!(sun_transitions));
+    }
+  }
+
+  if has_bodies {
+    if let Some((angle, waxing, phase)) = sun_moon_angle {
+      result.insert("moon", json!({ "sunAngle": angle, "waxing": waxing, "phase": phase }));
+    }
+  }
+  thread::sleep(micro_interval);
+  Json(json!(result))
 }
 
 /*

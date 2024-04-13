@@ -82,3 +82,34 @@ pub fn get_next_prev_rise_set_polar_calc_offset(ref_jd: f64, lat: f64) -> (i32, 
 pub fn min_progress_to_end_of_light_period(lat: f64) -> f64 {
 	(logarithmic_progress_to_pole(lat) * 120f64).floor() / 183f64
 }
+
+pub fn time_interval_format(increment: f64) -> String {
+  let hours_f64 = increment * 24f64;
+  let mins_f64 = (hours_f64 % 1.0) * 60.0;
+  let secs_f64 = (mins_f64 % 1.0) * 60.0;
+  let hrs = hours_f64.floor() as u32;
+  let mut parts = vec![];
+  if hrs > 0 {
+    parts.push(format!("{}h", hrs));
+  }
+  if mins_f64 > 0.0 {
+    let mins = mins_f64.floor() as u8; 
+    parts.push(format!("{}m", mins));
+    let secs = secs_f64.floor() as u8; 
+    if secs > 0 {
+      parts.push(format!("{}s", secs));
+    }
+  }
+  parts.join(" ")
+}
+
+pub fn calc_angle(lng1: f64, lng2: f64) -> f64 {
+  (lng1 + 360f64 - lng2) % 360f64
+}
+
+pub fn calc_sun_moon_angle(moon_lng: f64, sun_lng: f64) -> (f64, bool, u8) {
+  let angle = calc_angle(moon_lng, sun_lng);
+  let waxing = angle <= 180f64;
+  let phase = (angle / 90.0).floor() as u8 + 1;
+  (angle, waxing, phase)
+}

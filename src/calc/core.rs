@@ -1,6 +1,7 @@
 use super::super::extensions::swe::{azalt, get_ayanamsha, set_topo};
 use super::math_funcs::{normalize_360, normalize_f64};
 use super::models::{general::*, geo_pos::*, graha_pos::*, houses::calc_ascendant};
+use super::rise_set_phases::CentricMode;
 use super::{
   math_funcs::subtract_360,
   math_funcs::{adjust_lng_by_body_key, calc_opposite},
@@ -406,7 +407,7 @@ pub fn get_bodies_ecl_topo(
 pub fn get_body_longitudes(
   jd: f64,
   geo: GeoPos,
-  mode: &str,
+  mode: CentricMode,
   equatorial: bool,
   aya_offset: f64,
   keys: &Vec<&str>,
@@ -414,11 +415,11 @@ pub fn get_body_longitudes(
   let mut items: HashMap<String, f64> = HashMap::new();
   let bodies = match equatorial {
     true => match mode {
-      "topo" => get_bodies_eq_topo(jd, keys, geo),
+      CentricMode::Topo => get_bodies_eq_topo(jd, keys, geo),
       _ => get_bodies_eq_geo(jd, keys),
     },
     _ => match mode {
-      "topo" => get_bodies_ecl_topo(jd, keys, geo, aya_offset),
+      CentricMode::Topo => get_bodies_ecl_topo(jd, keys, geo, aya_offset),
       _ => get_bodies_ecl_geo(jd, keys, aya_offset),
     },
   };
@@ -444,7 +445,7 @@ pub fn get_body_longitudes_geo(
   aya_offset: f64,
   keys: &Vec<&str>,
 ) -> HashMap<String, f64> {
-  get_body_longitudes(jd, geo, "geo", false, aya_offset, keys)
+  get_body_longitudes(jd, geo, CentricMode::Geo, false, aya_offset, keys)
 }
 
 pub fn get_body_longitudes_topo(
@@ -453,7 +454,7 @@ pub fn get_body_longitudes_topo(
   aya_offset: f64,
   keys: &Vec<&str>,
 ) -> HashMap<String, f64> {
-  get_body_longitudes(jd, geo, "topo", false, aya_offset, keys)
+  get_body_longitudes(jd, geo, CentricMode::Topo, false, aya_offset, keys)
 }
 
 pub fn get_body_longitudes_eq_geo(
@@ -462,7 +463,7 @@ pub fn get_body_longitudes_eq_geo(
   aya_offset: f64,
   keys: &Vec<&str>,
 ) -> HashMap<String, f64> {
-  get_body_longitudes(jd, geo, "geo", true, aya_offset, keys)
+  get_body_longitudes(jd, geo, CentricMode::Geo, true, aya_offset, keys)
 }
 
 pub fn get_body_longitudes_eq_topo(
@@ -471,7 +472,20 @@ pub fn get_body_longitudes_eq_topo(
   aya_offset: f64,
   keys: &Vec<&str>,
 ) -> HashMap<String, f64> {
-  get_body_longitudes(jd, geo, "topo", true, aya_offset, keys)
+  get_body_longitudes(jd, geo, CentricMode::Topo, true, aya_offset, keys)
+}
+
+pub fn get_body_longitudes_contextual(jd: f64, geo: GeoPos, eq: u8, topo: u8, aya_offset: f64, keys: &Vec<&str>) -> HashMap<String, f64> {
+  match eq {
+    1 => match topo {
+      1 => get_body_longitudes_eq_topo(jd, geo, aya_offset, keys),
+      _ => get_body_longitudes_eq_geo(jd, geo, aya_offset,keys),
+    },
+    _ => match topo {
+      1 => get_body_longitudes_topo(jd, geo, aya_offset, keys),
+      _ => get_body_longitudes_geo(jd, geo, aya_offset, keys),
+    },
+  }
 }
 
 pub fn get_bodies_dual_topo(

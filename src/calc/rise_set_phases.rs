@@ -121,6 +121,22 @@ impl TransitionMode {
   }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum CentricMode {
+  Topo,
+  Geo
+}
+
+/* impl CentricMode {
+  pub fn from_key(key: &str) -> Self {
+    if key.to_lowercase().starts_with("topo") {
+      CentricMode::Topo
+    } else {
+      CentricMode::Geo
+    }
+  }
+} */
+
 pub trait TransitionGroup {
   fn period(&self) -> f64;
 

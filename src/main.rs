@@ -117,6 +117,7 @@ async fn main()  -> std::io::Result<()> {
           .service(test_geo_start)
           .service(bodies_progress)
           .service(body_positions)
+          .service(ascendant_progress)
           .service(chart_data_flexi)
           .service(list_sun_rise_set_times)
           .service(pheno_data)
