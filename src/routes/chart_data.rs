@@ -169,7 +169,7 @@ async fn ascendant_progress(params: Query<InputOptions>) -> impl Responder {
   result.insert("start", json!(start));
   result.insert("end", json!(end));
   result.insert("interval", json!(interval));
-  result.insert("current_index", json!(current_index));
+  result.insert("currentIndex", json!(current_index));
   if show_aya {
     result.insert("ayanamsha", json!({ "key": aya_key, "value": ayanamsha, "applied": sidereal }));
   }
