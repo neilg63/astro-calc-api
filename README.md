@@ -137,7 +137,26 @@ Query string parameters:
 - mode: Alignment and refraction options for rise / set times. See notes above for all options.
 - full: 0,1 (default) show as dailt transition sets with max, min as well as next_rise/next_set and prev_set/prev_rise, 2: show as linear sequence of transition events
 
-Calculate the alternating rise, set, IC and MC times as well and min. and max. altitudes of the sun over 1 or more days.  
+Calculate the alternating rise, set, IC and MC times as well and min. and max. altitudes of the sun over 1 or more days.
+
+#### GET /ascendant
+
+Progress of the ascendant only or, with the *bodies* option of celestial bodies too. By default, 24 longitude values are shown over a day starting 12 hours before the current time or the time referenced by the *dt* or *jd* parameters. The interval between samples (values) is display both as a simple string (e.g. 1h = 24 per day) and as a decimal fraction of day. If you specify more days via the *days* parameter, it will still start 12 hours before the referenced time. To show different intervals, use the the *pd* (per day) parameter, e.g. ```&pd=48``` would show one value every 30 minutes.
+The "currentIndex" value serves to match the current value. This endpoint is handy to plot the progression of the ascendant with the Sun, Moon and core planets over a few days. If the Sun and Moon (su, mo) are specified via bodies the endpoint shows the sun/moon angle and moon phase.
+
+Query string parameters:
+
+- **dt**: start date
+- **jd**: Julian Day as a decimal.
+- **loc**: lat,lng(,alt) coordinates, required for topocentric
+- **bodies**: comma-separated list of celestial bodies. If specified longitudes are shown as nested key/value sets.
+- **days**: number of days worth of results, default = 1
+- **pd**: number of samples per day, default 24, i.e. hourly intervals
+- **topo**: 0 = geocentric, 1 topocentric, only for celestial bodies
+- **eq**: 0 = ecliptic only, 1 equatorial only
+- **ct**: 0 or 1 = show sun rise and set times if more than 0
+- **iso**: 0 or 1 = show rise and set time as UTC date-time strings rather than julian days
+- **mode**: 0 to 7: Alignment and refraction options as detailed above
 
 ### GET /transposed-rise-times
 
