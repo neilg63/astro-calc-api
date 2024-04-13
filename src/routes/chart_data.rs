@@ -100,7 +100,9 @@ async fn ascendant_progress(params: Query<InputOptions>) -> impl Responder {
   let aya: String = params.aya.clone().unwrap_or("tropical".to_string());
   let sidereal: bool = params.sid.unwrap_or(0) > 0;
   let aya_key = match_ayanamsha_key(aya.as_str());
+  
   let ayanamsha = get_ayanamsha_value(date.jd, aya.as_str());
+  let show_aya = !aya_key.contains("tropical") && !sidereal;
   let aya_offset = if sidereal { ayanamsha } else { 0f64 };
   let num_items = pd as usize * num_days as usize;
   let increment = 1f64 / pd as f64;
@@ -135,7 +137,6 @@ async fn ascendant_progress(params: Query<InputOptions>) -> impl Responder {
                 sun_moon_angle = Some(calc_sun_moon_angle(*moon_lng, *sun_lng));
               }
             }
-            
           }
         }
         positions.push(body_set);
@@ -169,9 +170,11 @@ async fn ascendant_progress(params: Query<InputOptions>) -> impl Responder {
   result.insert("end", json!(end));
   result.insert("interval", json!(interval));
   result.insert("current_index", json!(current_index));
-  result.insert("ayanamsha", json!({ "key": aya_key, "value": ayanamsha, "applied": sidereal }));
-
-  if params.full.unwrap_or(0) > 0 {
+  if show_aya {
+    result.insert("ayanamsha", json!({ "key": aya_key, "value": ayanamsha, "applied": sidereal }));
+  }
+  let show_sun_rise_sets = params.full.unwrap_or(0) > 0 || params.ct.unwrap_or(0) > 0;
+  if show_sun_rise_sets {
     let iso_mode = params.iso.unwrap_or(0) > 0;
     let mode = TransitionMode::from_u8(params.mode.unwrap_or(3));
     let sun_transitions_jd = calc_transitions_sun(date.jd, num_days, geo, mode);
