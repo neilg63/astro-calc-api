@@ -141,7 +141,7 @@ Calculate the alternating rise, set, IC and MC times as well and min. and max. a
 
 #### GET /ascendant
 
-Progress of the ascendant only or, with the *bodies* option of celestial bodies too. By default, 24 longitude values are shown over a day starting 12 hours before the current time or the time referenced by the *dt* or *jd* parameters. The interval between samples (values) is display both as a simple string (e.g. 1h = 24 per day) and as a decimal fraction of day. If you specify more days via the *days* parameter, it will still start 12 hours before the referenced time. To show different intervals, use the the *pd* (per day) parameter, e.g. ```&pd=48``` would show one value every 30 minutes.
+Progress of the ascendant only or, with the *bodies* option of celestial bodies too. By default, 24 longitude values are shown over a day starting 12 hours before the current time or the time referenced by the *dt* or *jd* parameters. The interval between samples (values) is displayed both as a simple string (e.g. 1h = 24 per day) and as a decimal fraction of day. Specify more days via the *days* parameter only affects the end time. It will always start 12 hour before tthe referenced tim. To show different intervals, use the the *pd* (per day) parameter, e.g. ```&pd=48``` would show one value every 30 minutes.
 The "currentIndex" value serves to match the current value. This endpoint is handy to plot the progression of the ascendant with the Sun, Moon and core planets over a few days. If the Sun and Moon (su, mo) are specified via bodies the endpoint shows the sun/moon angle and moon phase.
 
 Query string parameters:
