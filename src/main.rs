@@ -122,6 +122,7 @@ async fn main()  -> std::io::Result<()> {
           .service(list_sun_rise_set_times)
           .service(pheno_data)
           .service(list_rise_set_times)
+          .service(show_moon_phases)
           .service(body_transposed_transitions_range)
           .service(test_rise_set_times)
           .service(test_mcs)

@@ -102,14 +102,3 @@ pub fn time_interval_format(increment: f64) -> String {
   }
   parts.join(" ")
 }
-
-pub fn calc_angle(lng1: f64, lng2: f64) -> f64 {
-  (lng1 + 360f64 - lng2) % 360f64
-}
-
-pub fn calc_sun_moon_angle(moon_lng: f64, sun_lng: f64) -> (f64, bool, u8) {
-  let angle = calc_angle(moon_lng, sun_lng);
-  let waxing = angle <= 180f64;
-  let phase = (angle / 90.0).floor() as u8 + 1;
-  (angle, waxing, phase)
-}

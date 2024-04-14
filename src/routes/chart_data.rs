@@ -7,6 +7,7 @@ use crate::calc::{
   settings::ayanamshas::match_ayanamsha_key,
   rise_set_phases::*,
   utils::converters::*,
+  lunar_cycles::{calc_moon_phases,calc_sun_moon_angle,MoonPhase},
 };
 use crate::query_params::*;
 use crate::reset_ephemeris_path;
@@ -79,7 +80,7 @@ async fn body_positions(params: Query<InputOptions>) -> impl Responder {
 #[get("/ascendant")]
 async fn ascendant_progress(params: Query<InputOptions>) -> impl Responder {
   reset_ephemeris_path();
-  let micro_interval = time::Duration::from_millis(20);
+  let mut micro_interval_millis = 30;
 
   let pd = params.pd.unwrap_or(24);
   let days_val = params.days.unwrap_or(1);
@@ -161,7 +162,6 @@ async fn ascendant_progress(params: Query<InputOptions>) -> impl Responder {
     valid = items.len() >= pd as usize;
     mode_key = "ascendants".to_string();
   }
-  // let mut result = json!({ "valid": valid, "mode": mode_key, "date": date, "start": start, "end": end, "interval": interval, "current_index": current_index , "geo": geo, "values": values, "ayanamsha": { "key": aya_key, "value": ayanamsha, "applied": sidereal } });
   result.insert("valid", Value::Bool(valid));
   result.insert("mode", Value::String(mode_key));
   result.insert("geo", json!(geo));
@@ -173,7 +173,8 @@ async fn ascendant_progress(params: Query<InputOptions>) -> impl Responder {
   if show_aya {
     result.insert("ayanamsha", json!({ "key": aya_key, "value": ayanamsha, "applied": sidereal }));
   }
-  let show_sun_rise_sets = params.full.unwrap_or(0) > 0 || params.ct.unwrap_or(0) > 0;
+  let full_mode = params.full.unwrap_or(0) > 0;
+  let show_sun_rise_sets = full_mode || params.ct.unwrap_or(0) > 0;
   if show_sun_rise_sets {
     let iso_mode = params.iso.unwrap_or(0) > 0;
     let mode = TransitionMode::from_u8(params.mode.unwrap_or(3));
@@ -186,11 +187,33 @@ async fn ascendant_progress(params: Query<InputOptions>) -> impl Responder {
 
   if has_bodies {
     if let Some((angle, waxing, phase)) = sun_moon_angle {
-      result.insert("moon", json!({ "sunAngle": angle, "waxing": waxing, "phase": phase }));
+      let mut next_phases: Vec<MoonPhase> = vec![];
+      micro_interval_millis = 60;
+      if full_mode {
+        next_phases = calc_moon_phases(start.jd, geo, 2);
+      }
+      result.insert("moon", json!({ "sunAngle": angle, "waxing": waxing, "phase": phase, "nextPhases": next_phases }));
     }
   }
-  thread::sleep(micro_interval);
+  thread::sleep(time::Duration::from_millis(micro_interval_millis));
   Json(json!(result))
+}
+
+
+#[get("/moon-phases")]
+async fn show_moon_phases(params: Query<InputOptions>) -> impl Responder {
+  reset_ephemeris_path();
+  let num = params.num.unwrap_or(3);
+  let num_cycles = if num < 1 { 1 } else if num > 44{ 44 } else { num };
+  let micro_interval_millis = 20 * num_cycles as u64;
+  let date = to_date_object(&params);
+  let geo = to_geopos_object(&params);
+  let start_jd = date.jd - 1.0;
+  
+  let phases = calc_moon_phases(start_jd, geo, num_cycles as u8);
+  let valid = phases.len() > 3;
+  thread::sleep(time::Duration::from_millis(micro_interval_millis));
+  Json(json!({ "valid": valid, "date": date, "geo": geo, "phases": phases }))
 }
 
 /*

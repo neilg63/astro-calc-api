@@ -1,13 +1,12 @@
-use super::super::extensions::swe::{azalt, get_ayanamsha, set_topo};
-use super::math_funcs::{normalize_360, normalize_f64};
-use super::models::{general::*, geo_pos::*, graha_pos::*, houses::calc_ascendant};
-use super::rise_set_phases::CentricMode;
-use super::{
+use crate::extensions::swe::{azalt, get_ayanamsha, set_topo};
+use crate::calc::{
+  rise_set_phases::CentricMode,
   math_funcs::subtract_360,
-  math_funcs::{adjust_lng_by_body_key, calc_opposite},
+  math_funcs::{adjust_lng_by_body_key, calc_opposite,normalize_360, normalize_f64},
   settings::ayanamshas::*,
   traits::*,
   rise_set_phases::get_pheno_result,
+  models::{general::*, geo_pos::*, graha_pos::*, houses::calc_ascendant}
 };
 use libswe_sys::sweconst::{Bodies, OptionalFlag};
 use libswe_sys::swerust::handler_swe03::*;
