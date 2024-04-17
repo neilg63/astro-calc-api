@@ -187,12 +187,13 @@ async fn ascendant_progress(params: Query<InputOptions>) -> impl Responder {
 
   if has_bodies {
     if let Some((angle, waxing, phase)) = sun_moon_angle {
-      let mut next_phases: Vec<MoonPhase> = vec![];
+      let mut phases: Vec<MoonPhase> = vec![];
       micro_interval_millis = 60;
       if full_mode {
-        next_phases = calc_moon_phases(start.jd, geo, 2);
+        // start 8 days ago
+        phases = calc_moon_phases(date.jd - 8.0, geo, 2);
       }
-      result.insert("moon", json!({ "sunAngle": angle, "waxing": waxing, "phase": phase, "nextPhases": next_phases }));
+      result.insert("moon", json!({ "sunAngle": angle, "waxing": waxing, "phase": phase, "phases": phases }));
     }
   }
   thread::sleep(time::Duration::from_millis(micro_interval_millis));
@@ -208,7 +209,8 @@ async fn show_moon_phases(params: Query<InputOptions>) -> impl Responder {
   let micro_interval_millis = 20 * num_cycles as u64;
   let date = to_date_object(&params);
   let geo = to_geopos_object(&params);
-  let start_jd = date.jd - 1.0;
+  // start 8 days ago
+  let start_jd = date.jd - 8.0;
   
   let phases = calc_moon_phases(start_jd, geo, num_cycles as u8);
   let valid = phases.len() > 3;
