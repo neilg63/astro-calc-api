@@ -10,7 +10,7 @@ This application extends [Stéphane Bressani's](https://github.com/stephaneworks
 
 This is the open-source version of a custom API server, using ActixWeb, with a rich set of astronomical and astrological features, and uses the [Julian Day Converter](https://crates.io/crates/julian_day_converter) library crate for integration with the chrono crate to handle date-time interopability.
 
-A simple Web interface showcasing many of the possible calculations, with a few derived custom features, is available at [astroui.multifaceted.info/](https://astroui.multifaceted.info/) available in a separate [repo](https://github.com/neilg63/astrocalc-front), which also uses the parallel [GeoTimeZone API](https://github.com/neilg63/geotime) project.
+A simple Web interface showcasing many of the possible calculations, with a few derived custom features, is available at [astroui.multifaceted.info](https://astroui.multifaceted.info/) available in a separate [repo](https://github.com/neilg63/astrocalc-front), which also uses the parallel [GeoTimeZone API](https://github.com/neilg63/geotime) project.
 
 ## Build instructions:
 
