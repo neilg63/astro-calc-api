@@ -51,14 +51,14 @@ async fn body_positions(params: Query<InputOptions>) -> impl Responder {
   let date = to_date_object(&params);
   let geo = to_geopos_object(&params);
   let aya: String = params.aya.clone().unwrap_or("tropical".to_string());
-  let sidereal: bool = params.sid.unwrap_or(0) > 0;
+  let eq: u8 = params.eq.clone().unwrap_or(2); // 0 ecliptic, 1 equatorial, 2 both
+  let sidereal: bool = params.sid.unwrap_or(0) > 0 && eq < 1; // omly applied if ecliptic
   let topo: u8 = params.topo.clone().unwrap_or(0);
   let def_keys = vec![
     "su", "mo", "ma", "me", "ju", "ve", "sa", "ur", "ne", "pl", "ra", "ke",
   ];
   let key_string: String = params.bodies.clone().unwrap_or("".to_string());
   let keys = body_keys_str_to_keys_or(key_string, def_keys);
-  let eq: u8 = params.eq.clone().unwrap_or(2); // 0 ecliptic, 1 equatorial, 2 both
   let aya_key = match_ayanamsha_key(aya.as_str());
   let ayanamsha = get_ayanamsha_value(date.jd, aya.as_str());
   let aya_offset = if sidereal { ayanamsha } else { 0f64 };
