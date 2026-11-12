@@ -1,0 +1,22 @@
+[package]
+name = "astro-calc-api"
+version = "0.1.0"
+description = "REST API for astronomical and astrological calculations, built on astro-calc-core"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+authors = ["Neil Gardner"]
+readme = "README.md"
+
+[dependencies]
+astro-calc-core = { path = "../astro-calc-core" }
+axum = "0.8"
+chrono = "0.4"
+julian_day_converter = "0.4.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+dotenvy = "0.15.7"
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
