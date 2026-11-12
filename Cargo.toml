@@ -8,7 +8,7 @@ authors = ["Neil Gardner"]
 readme = "README.md"
 
 [dependencies]
-astro-calc-core = { path = "../astro-calc-core" }
+astro-calc-core = "0.1"
 axum = "0.8"
 chrono = "0.4"
 julian_day_converter = "0.4.6"

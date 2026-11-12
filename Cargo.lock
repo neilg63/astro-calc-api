@@ -48,6 +48,8 @@ dependencies = [
 [[package]]
 name = "astro-calc-core"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "003291735ca01cee5225d363e0b8a426bce8de61e732a47c61c6e0f2279daafe"
 dependencies = [
  "aspect360",
  "chrono",
