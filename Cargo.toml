@@ -8,7 +8,7 @@ authors = ["Neil Gardner"]
 readme = "README.md"
 
 [dependencies]
-astro-calc-core = "0.1"
+astro-calc-core = "0.1.1"
 axum = "0.8"
 chrono = "0.4"
 julian_day_converter = "0.4.6"
@@ -20,9 +20,3 @@ dotenvy = "0.15.7"
 [dev-dependencies]
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
-
-# Temporary: the rise/set options (twilight, horizon, dip and the rest) are in the local
-# astro-calc-core but not yet in a published release. Remove this section, and raise the
-# version required above, once that release is on crates.io.
-[patch.crates-io]
-astro-calc-core = { path = "../astro-calc-core" }
