@@ -67,24 +67,103 @@ rise and set times and the Indian day.
 
 | Parameter | Meaning |
 |---|---|
-| `bodies` | Comma-separated body keys, e.g. `su,mo,ve,ma`. See `/bodies`; stars are `hip:NUMBER`. |
+| `bodies` | Comma-separated body keys, e.g. `su,mo,ve,ma`, and the set names `default` and `basic`. See `/bodies`; stars are `hip:NUMBER`. |
 | `body` | A single body key. |
-| `cs` | Coordinate system: `ecliptic`/`ecl` (default), `equatorial`/`equ`, `horizontal`/`hor`. |
-| `ps` | Perspective: `geocentric`/`geo` (default) or `topocentric`/`topo`. |
+| `cs` | Coordinate system: `ecliptic`/`ecl` (default), `equatorial`/`equ`, `horizontal`/`hor`, or `all` for the three together. |
+| `ps` | Perspective: where the observer is; see the table below. For the longitude and position endpoints the default is `topo` when a place is given and `geo` when not; elsewhere it is `geo`. |
 | `aya` | Ayanamsha keys, comma-separated (`lh`, `kr`, `tc`, ...), or `all`. |
 | `sid` | `1` subtracts the first ayanamsha from ecliptic longitudes. |
 | `hsys` | House system letters, comma-separated (`P,K,W`), or `all`. Default `W`. |
-| `mode` | Rise/set mode 0–7: disc alignment and refraction. Default 3. |
 | `num`, `before` | How many items to return, and how many preceding the date. |
 | `pd` | Samples per day (or per year with `years`) in `/progress`. Default 1. |
 | `aspects` | Aspect definitions as `angle:orb` pairs: `0:8,60:6,90:8`. |
 | `orb` | One orb for the default aspects (conjunction, sextile, square, trine, opposition). |
 
+**Body sets**
+
+| Name | Bodies |
+|---|---|
+| `default` | `as` ascendant, `su` Sun, `mo` Moon, `me` Mercury, `ve` Venus, `ma` Mars, `ju` Jupiter, `sa` Saturn, `ur` Uranus, `ne` Neptune, `pl` Pluto, `ke` Ketu, `ra` Rahu |
+| `basic` | `default` without `ur`, `ne` and `pl`, as used in Indian astrology |
+
+- `default` is used when no bodies are named in the longitude and position endpoints.
+  `core` is its former name and is still accepted for now. A set name can be mixed
+  with keys: `bodies=basic,ch`.
+- The ascendant (`as`) needs a place. Without one it is left out of a set, and asking for
+  it by name is an error.
+- Seen from another centre (`ps=helio` and the like) a set gains the Earth (`ea`, after
+  Venus) and loses the centre itself, the ascendant and the lunar nodes.
+- Ketu is the point opposite Rahu (the true node); when both are asked for it is derived
+  from Rahu, not calculated twice.
+
+**Perspectives** (`ps`)
+
+| Key | Name | Observer |
+|---|---|---|
+| `geo` | `geocentric` | Centre of the Earth |
+| `topo` | `topocentric` | A place on the Earth's surface |
+| `helio` | `heliocentric` | Centre of the Sun |
+| `seleno` | `selenocentric` | Centre of the Moon |
+| `hermeo` | `hermeocentric` | Centre of Mercury |
+| `cythero` | `cytherocentric` | Centre of Venus |
+| `areo` | `areocentric` | Centre of Mars |
+| `jovi` | `jovicentric` | Centre of Jupiter |
+| `crono` | `cronocentric` | Centre of Saturn |
+| `bary` | `barycentric` | Centre of mass of the solar system |
+| `local` | `local-space-horizon` | A place on the Earth, with positions on the local horizon |
+
+- From a centre other than the Earth, the Earth (`ea`) is a body and is included by
+  default. The centre itself and the Earth's lunar nodes and apsides cannot be requested.
+- Coordinates from every centre stay on the Earth's ecliptic or equator of date.
+- `local` always returns azimuth in `lng`, measured from north through east, and altitude
+  in `lat`, whatever `cs` says. Note that `cs=hor` with `ps=topo` counts azimuth from the
+  south westwards instead.
+- `topo` and `local` need a place. Horizontal coordinates need an observer on the Earth.
+
+**Rise and set options** (`/rise-set` and `/indian-day`)
+
+| Parameter | Meaning |
+|---|---|
+| `disc` | Part of the disc that touches the horizon: `upper`, `center` (default) or `lower`. |
+| `refraction` | `1` standard refraction (default), `0` none. |
+| `pressure`, `temp` | Air pressure in hPa and temperature in °C, to scale the refraction. Standard is 1010 and 10. |
+| `fixed` | `1` uses a fixed mean radius for the Sun and Moon instead of the actual one. |
+| `horizon` | Apparent altitude of the horizon in degrees, for a ridge (`2`) or a view downwards (`-1`). |
+| `twilight` | `civil`, `nautical` or `astronomical`: the Sun's centre 6°, 12° or 18° below the horizon. Disc, refraction and dip are then not used. |
+| `dip` | `1` lowers the horizon by the dip for the observer's altitude (`alt`), taken as height above the surrounding ground or sea. |
+| `geoc` | `1` uses geocentric positions, ignoring parallax. |
+| `nolat` | `1` places the body on the ecliptic, ignoring its latitude. |
+| `hindu` | `1` is the traditional Hindu rising: centre, no refraction, geocentric, no latitude. |
+| `mode` | The older numeric presets 0–7; the parameters above override the preset. |
+
+The conventional almanac sunrise and sunset are `disc=upper`. The response's `options`
+object shows what the parameters resolved to.
+
+| `mode` | Disc | Refraction | Fixed radius |
+|---|---|---|---|
+| 0 | upper | yes | no |
+| 1, 3 | center | yes | no |
+| 2 | center | no | no |
+| 4 | lower | no | no |
+| 5 | lower | yes | no |
+| 6 | upper | no | yes |
+| 7 | upper | yes | yes |
+
 The older `topo=1`, `eq=1` and `eq=3` are accepted as aliases for `ps=topo`, `cs=equ` and
 `cs=hor`.
 
-In responses, `lng` and `lat` are the two angles of the coordinate system asked for:
-longitude and latitude, right ascension and declination, or azimuth and altitude.
+In responses the two angles of a position are named after the coordinate system:
+
+| `cs` | Angles | Speeds |
+|---|---|---|
+| `ecl` | `lng`, `lat` | `lng_speed`, `lat_speed` |
+| `equ` | `ras` (right ascension, in degrees), `dcl` (declination) | `ras_speed`, `dcl_speed` |
+| `hor` | `azi` (azimuth), `alt` (altitude) | `azi_speed`, `alt_speed` |
+| `all` | all six | all six |
+
+`/extended-position` and `/extended-positions` are the same as `/position` and `/positions`
+with `cs=all`. `dist` and `dist_speed` (AU) are the same in every system. `cs=all` needs a place and an
+observer on the Earth, because it includes the horizon; it is not available in `/progress`.
 
 ## Endpoints
 
@@ -93,23 +172,31 @@ longitude and latitude, right ascension and declination, or azimuth and altitude
 | `/` | Service information and the ephemeris date range | |
 | `/bodies` | Body keys and whether each is available | |
 | `/stars` | The 410 built-in named stars | |
+| `/longitude` | One body's ecliptic longitude only | `body`, `ps`, `aya`, place |
+| `/longitudes` | Several bodies' longitudes, with the ascendant | `bodies`, `ps`, `aya`, place |
 | `/position` | One body's position | `body`, `cs`, `ps`, `aya`, `sid` |
 | `/positions` | Several bodies' positions | `bodies`, `cs`, `ps`, `aya`, `sid` |
+| `/extended-position` | One body in all three coordinate systems | `body`, `ps`, `aya`, `sid`, place |
+| `/extended-positions` | Several bodies in all three coordinate systems | `bodies`, `ps`, `aya`, `sid`, place |
 | `/progress` | Positions over a series of times | `bodies`, `days` or `years`, `pd` |
 | `/ascendant` | The ascendant | place |
 | `/angles` | Ascendant, MC, vertex and the other angles | place |
 | `/houses` | Angles and house cusps | place, `hsys` |
 | `/ayanamsha` | Ayanamsha values | `aya` |
-| `/rise-set` | Rise, set and meridian transits for the local day | place, `bodies`, `mode` |
+| `/rise-set` | Rise, set and meridian transits for the local day | place, `bodies`, rise/set options |
 | `/stations` | Current speed and retrograde stations | `bodies`, `num`, `before`, or a range |
 | `/moon-phases` | The next lunar phases | `num`, or a range; `ps` |
-| `/indian-day` | The sunrise-to-sunrise day and its time units | place, `mode` |
+| `/indian-day` | The sunrise-to-sunrise day and its time units | place, rise/set options |
 | `/pheno` | Phase, elongation, diameter and magnitude | `bodies` |
 | `/aspects` | Aspects between bodies at one moment | `bodies`, `aspects` or `orb`, `ps` |
 
 `/progress` has two forms. With `days` it samples real time, `pd` times a day. With `years`
 it is a secondary progression: one day of motion stands for each year, and every sample
 carries the `age` and the real `date` it represents.
+
+`/longitude` and `/longitudes` return nothing but longitudes and cost about half as much
+as full positions. Naming an ayanamsha in `aya` makes them sidereal directly; `sid` is not
+needed there.
 
 ## Examples
 

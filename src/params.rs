@@ -1,6 +1,6 @@
 //! Query-string parameters shared by every endpoint.
 
-use astro_calc_core::{AspectOrb, Ayanamsha, Body, CoordSystem, GeoPos, HouseSystem, JdUt, Perspective, RiseSetOptions, aspect_orb, parse_body_list};
+use astro_calc_core::{AspectOrb, Ayanamsha, Body, CoordSystem, GeoPos, HouseSystem, JdUt, Perspective, RiseSetOptions, aspect_orb, parse_body_list, parse_body_list_for};
 use axum::extract::{FromRequestParts, Query};
 use axum::http::request::Parts;
 use chrono::Utc;
@@ -39,9 +39,11 @@ pub struct Params {
     pub bodies: Option<String>,
     /// A single body key.
     pub body: Option<String>,
-    /// Coordinate system: `ecliptic`/`ecl`, `equatorial`/`equ` or `horizontal`/`hor`.
+    /// Coordinate system: `ecliptic`/`ecl`, `equatorial`/`equ`, `horizontal`/`hor`, or `all`
+    /// for the three together.
     pub cs: Option<String>,
-    /// Perspective: `geocentric`/`geo` or `topocentric`/`topo`.
+    /// Perspective: `geo`, `topo`, `helio`, `seleno`, `hermeo`, `cythero`, `areo`, `jovi`,
+    /// `crono`, `bary` or `local`, or the full names.
     pub ps: Option<String>,
     /// Ayanamsha keys, comma-separated, or `all`.
     pub aya: Option<String>,
@@ -54,8 +56,29 @@ pub struct Params {
     pub pd: Option<f64>,
     /// House system letters, comma-separated, or `all`.
     pub hsys: Option<String>,
-    /// Rise/set mode 0–7 (disc alignment and refraction).
+    /// Rise/set mode 0–7: the older numeric presets for disc alignment and refraction.
     pub mode: Option<u8>,
+    /// Rise/set: which part of the disc, `upper`, `center` or `lower`.
+    pub disc: Option<String>,
+    /// Rise/set: `0` or `off` for no refraction, `1` or `on` for standard refraction.
+    pub refraction: Option<String>,
+    /// Rise/set: air pressure in hPa and temperature in °C, to scale the refraction.
+    pub pressure: Option<f64>,
+    pub temp: Option<f64>,
+    /// Rise/set: `1` for a fixed mean radius of the Sun and Moon.
+    pub fixed: Option<u8>,
+    /// Rise/set: apparent altitude of the horizon in degrees.
+    pub horizon: Option<f64>,
+    /// Rise/set: `civil`, `nautical` or `astronomical` twilight instead of the horizon.
+    pub twilight: Option<String>,
+    /// Rise/set: `1` to lower the horizon by the dip for the observer's altitude.
+    pub dip: Option<u8>,
+    /// Rise/set: `1` to use geocentric positions (no parallax).
+    pub geoc: Option<u8>,
+    /// Rise/set: `1` to ignore the body's ecliptic latitude.
+    pub nolat: Option<u8>,
+    /// Rise/set: `1` for the Hindu rising preset (centre, no refraction, geocentric, no latitude).
+    pub hindu: Option<u8>,
     /// How many items to return, and how many before the date.
     pub num: Option<u32>,
     pub before: Option<u8>,
@@ -147,13 +170,23 @@ impl Params {
         self.geo()?.ok_or_else(|| ApiError::bad("a location is required: loc=lat,lng or lat and lng"))
     }
 
+    /// Whether all three coordinate systems were asked for together: `cs=all` (or `ext`).
+    pub fn all_systems(&self) -> bool {
+        self.cs.as_deref().is_some_and(|cs| matches!(cs.to_ascii_lowercase().as_str(), "all" | "ext"))
+    }
+
+    /// The coordinate system. With `cs=all` this is horizontal, the most demanding of the
+    /// three: it needs a place and an observer on the Earth.
     pub fn coord_system(&self) -> Result<CoordSystem, ApiError> {
+        if self.all_systems() {
+            return Ok(CoordSystem::Horizontal);
+        }
         let key = self.cs.as_deref().map(str::to_ascii_lowercase);
         Ok(match key.as_deref() {
             Some("ecliptic" | "ecl" | "0") => CoordSystem::Ecliptic,
             Some("equatorial" | "equ" | "eq" | "1") => CoordSystem::Equatorial,
             Some("horizontal" | "hor" | "2") => CoordSystem::Horizontal,
-            Some(other) => return Err(ApiError::bad(format!("unknown cs: {other} (use ecl, equ or hor)"))),
+            Some(other) => return Err(ApiError::bad(format!("unknown cs: {other} (use ecl, equ, hor or all)"))),
             None => match self.eq {
                 Some(1) => CoordSystem::Equatorial,
                 Some(3) => CoordSystem::Horizontal,
@@ -163,26 +196,70 @@ impl Params {
     }
 
     pub fn perspective(&self) -> Result<Perspective, ApiError> {
-        let key = self.ps.as_deref().map(str::to_ascii_lowercase);
-        Ok(match key.as_deref() {
-            Some("geocentric" | "geo" | "0") => Perspective::Geocentric,
-            Some("topocentric" | "topo" | "1") => Perspective::Topocentric,
-            Some(other) => return Err(ApiError::bad(format!("unknown ps: {other} (use geo or topo)"))),
-            None if self.topo == Some(1) => Perspective::Topocentric,
-            None => Perspective::Geocentric,
-        })
+        match self.ps.as_deref() {
+            Some(key) => key.parse().map_err(|_| {
+                let keys: Vec<&str> = Perspective::ALL.iter().map(|p| p.key()).collect();
+                ApiError::bad(format!("unknown ps: {key} (use one of {})", keys.join(", ")))
+            }),
+            None if self.topo == Some(1) => Ok(Perspective::Topocentric),
+            None => Ok(Perspective::Geocentric),
+        }
     }
 
     /// The coordinate system, perspective and location together. A location is required
-    /// for topocentric positions and horizontal coordinates and optional otherwise.
+    /// for observers on the Earth's surface and for horizontal coordinates, optional otherwise.
     pub fn view(&self) -> Result<(CoordSystem, Perspective, GeoPos), ApiError> {
         let (cs, ps) = (self.coord_system()?, self.perspective()?);
-        let geo = if cs == CoordSystem::Horizontal || ps == Perspective::Topocentric {
+        let geo = if cs == CoordSystem::Horizontal || ps.needs_location() {
             self.require_geo()?
         } else {
             self.geo()?.unwrap_or_default()
         };
         Ok((cs, ps, geo))
+    }
+
+    /// The perspective for the position and longitude endpoints, where the default is
+    /// topocentric whenever a place is given (and geocentric when none is).
+    pub fn perspective_or_topo(&self) -> Result<Perspective, ApiError> {
+        match (&self.ps, self.topo) {
+            (Some(_), _) | (None, Some(_)) => self.perspective(),
+            (None, None) if self.geo()?.is_some() => Ok(Perspective::Topocentric),
+            (None, None) => Ok(Perspective::Geocentric),
+        }
+    }
+
+    /// As [`view`](Self::view), with the topocentric default of the position endpoints.
+    pub fn view_topo(&self) -> Result<(CoordSystem, Perspective, GeoPos), ApiError> {
+        let (cs, ps) = (self.coord_system()?, self.perspective_or_topo()?);
+        let geo = if cs == CoordSystem::Horizontal || ps.needs_location() {
+            self.require_geo()?
+        } else {
+            self.geo()?.unwrap_or_default()
+        };
+        Ok((cs, ps, geo))
+    }
+
+    /// The bodies to compute for a perspective: `bodies` (or `body`), which may include the
+    /// set names `default` and `basic`, else the given default list. Sets are adapted to the
+    /// perspective: away from the Earth they gain the Earth and lose what cannot be seen.
+    /// The ascendant needs a place: without one it is left out of a set, and asking for it
+    /// by name is an error.
+    pub fn body_list(&self, ps: Perspective, default: &[Body]) -> Result<Vec<Body>, ApiError> {
+        let has_place = self.geo()?.is_some();
+        let mut list = match self.bodies.as_deref().or(self.body.as_deref()) {
+            Some(text) if !text.trim().is_empty() => {
+                let named = items(text).any(|t| matches!(t.to_ascii_lowercase().as_str(), "as" | "asc" | "ascendant"));
+                if named && !has_place {
+                    return Err(ApiError::bad("the ascendant needs a location: loc=lat,lng or lat and lng"));
+                }
+                parse_body_list_for(text, ps).map_err(|e| ApiError::bad(e.to_string()))?
+            }
+            _ => Body::set_for(default, ps),
+        };
+        if !has_place {
+            list.retain(|b| *b != Body::Ascendant);
+        }
+        Ok(list)
     }
 
     /// `bodies` (or `body`), else the given default list.
@@ -226,12 +303,72 @@ impl Params {
             .collect()
     }
 
+    /// Rise/set options: a preset (`mode` or `hindu`), then each explicit parameter on top.
     pub fn rise_set_options(&self) -> Result<RiseSetOptions, ApiError> {
-        match self.mode {
-            None => Ok(RiseSetOptions::default()),
-            Some(mode) if mode <= 7 => Ok(RiseSetOptions::from_legacy_mode(mode)),
-            Some(mode) => Err(ApiError::bad(format!("mode must be 0 to 7, not {mode}"))),
+        use astro_calc_core::{DiscAlignment, Horizon, Refraction};
+        let flag = |name: &str, v: Option<u8>| match v {
+            None => Ok(None),
+            Some(0) => Ok(Some(false)),
+            Some(1) => Ok(Some(true)),
+            Some(other) => Err(ApiError::bad(format!("{name} must be 0 or 1, not {other}"))),
+        };
+        let mut opts = match (flag("hindu", self.hindu)?, self.mode) {
+            (Some(true), _) => RiseSetOptions::hindu_rising(),
+            (_, None) => RiseSetOptions::default(),
+            (_, Some(mode)) if mode <= 7 => RiseSetOptions::from_legacy_mode(mode),
+            (_, Some(mode)) => return Err(ApiError::bad(format!("mode must be 0 to 7, not {mode}"))),
+        };
+        if let Some(disc) = self.disc.as_deref() {
+            opts.disc = match disc.to_ascii_lowercase().as_str() {
+                "upper" | "top" | "u" => DiscAlignment::UpperLimb,
+                "center" | "centre" | "c" => DiscAlignment::Center,
+                "lower" | "bottom" | "l" => DiscAlignment::LowerLimb,
+                other => return Err(ApiError::bad(format!("unknown disc: {other} (use upper, center or lower)"))),
+            };
         }
+        if let Some(refraction) = self.refraction.as_deref() {
+            opts.refraction = match refraction.to_ascii_lowercase().as_str() {
+                "0" | "off" | "no" | "false" => Refraction::Off,
+                "1" | "on" | "yes" | "true" | "standard" => Refraction::Standard,
+                other => return Err(ApiError::bad(format!("unknown refraction: {other} (use 0 or 1)"))),
+            };
+        }
+        if self.pressure.is_some() || self.temp.is_some() {
+            let (pressure, temperature) = (self.pressure.unwrap_or(1010.0), self.temp.unwrap_or(10.0));
+            if !(pressure.is_finite() && pressure >= 0.0 && temperature.is_finite() && temperature > -273.0) {
+                return Err(ApiError::bad("invalid pressure or temp"));
+            }
+            if opts.refraction != Refraction::Off {
+                opts.refraction = Refraction::Atmosphere { pressure, temperature };
+            }
+        }
+        if let Some(fixed) = flag("fixed", self.fixed)? {
+            opts.fixed_disc = fixed;
+        }
+        if let Some(altitude) = self.horizon {
+            if !(altitude.is_finite() && altitude.abs() < 90.0) {
+                return Err(ApiError::bad("horizon must be an altitude between -90 and 90 degrees"));
+            }
+            opts.horizon = Horizon::Altitude(altitude);
+        }
+        if let Some(twilight) = self.twilight.as_deref() {
+            opts.horizon = match twilight.to_ascii_lowercase().as_str() {
+                "civil" | "c" => Horizon::CivilTwilight,
+                "nautical" | "nautic" | "n" => Horizon::NauticalTwilight,
+                "astronomical" | "astro" | "a" => Horizon::AstronomicalTwilight,
+                other => return Err(ApiError::bad(format!("unknown twilight: {other} (use civil, nautical or astronomical)"))),
+            };
+        }
+        if let Some(dip) = flag("dip", self.dip)? {
+            opts.dip = dip;
+        }
+        if let Some(geocentric) = flag("geoc", self.geoc)? {
+            opts.geocentric = geocentric;
+        }
+        if let Some(ignore) = flag("nolat", self.nolat)? {
+            opts.ignore_latitude = ignore;
+        }
+        Ok(opts)
     }
 
     /// Aspect angles and orbs from `aspects`, or the major aspects with `orb` (default 8°,
