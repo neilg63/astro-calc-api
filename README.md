@@ -232,7 +232,7 @@ to an application stays in the client.
 | `ref` | string | yes | The client's identifier, returned with every result. Not checked for uniqueness |
 | `lat`, `lng` | number | yes | Latitude (−90 to 90, north positive) and longitude (−180 to 180, east positive) in degrees |
 | `alt` | number | no | Altitude in metres. Default 0 |
-| `dt` | string | one of `dt`, `jd` | UTC date-time, `YYYY-MM-DDThh:mm:ss`, with or without a final `Z`. Years before 1000 are not read in this form: use `jd` |
+| `dt` | string | one of `dt`, `jd` | UTC date-time, `YYYY-MM-DDThh:mm:ss`, with or without a final `Z`. Years before 1000 are accepted in the proleptic Gregorian calendar with astronomical years, negative ones included: `0900-07-06T09:24:37`, `-0043-03-15` (44 BC) |
 | `jd` | number | one of `dt`, `jd` | Julian Day (UT). Takes precedence over `dt` |
 | `tags` | any JSON | no | Returned with every result. If it is an object, its members can be used by the `tags` filter |
 

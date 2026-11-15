@@ -432,6 +432,10 @@ async fn bulk_charts_echo_refs_and_tags() {
     for (bulk, one) in chart["bodies"].as_array().unwrap().iter().zip(single["bodies"].as_array().unwrap()) {
         assert!((f(&bulk["lng"]) - f(&one["lng"])).abs() < 1e-9);
     }
+    // Early years are read as dates; here they are merely outside the test ephemeris.
+    let (status, early) = get(&s, "/longitude?body=su&dt=0900-07-06T09:24:37").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{early}");
+    assert!(early["error"].as_str().unwrap().starts_with("0900-07-06"), "{early}");
     // The wrapped form and the tag filter.
     let (_, women) = post(&s, "/bulk/charts?bodies=su&tags=sex:f,group:0", serde_json::json!({ "items": records })).await;
     let list = women["charts"].as_array().unwrap();
