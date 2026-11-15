@@ -142,7 +142,7 @@ async fn positions_match_the_core_library() {
     let one = ok(&s, &format!("/longitude?jd={JD}&loc=56.1,-3.6&body=mo&aya=tc")).await;
     let want = s.eph.calc_longitude(Body::Moon, JD, geo, Perspective::Topocentric, Some(Ayanamsha::TrueCitra)).unwrap();
     assert_eq!((one["key"].as_str(), one["ps"].as_str(), one["ayanamsha"]["key"].as_str()), (Some("mo"), Some("topocentric"), Some("tc")));
-    assert!((f(&one["lng"]) - want).abs() < 1e-9);
+    assert!((f(&one["lng"]) - *want).abs() < 1e-9);
     assert!((f(&ok(&s, &format!("/longitude?jd={JD}&loc=56.1,-3.6&body=as")).await["lng"]) - ascendant(JD, geo)).abs() < 1e-6);
 
     // Legacy aliases still work.
@@ -383,4 +383,115 @@ async fn information_and_errors() {
         assert_eq!(body["valid"], false, "{path}");
         assert!(body["error"].as_str().is_some_and(|e| !e.is_empty()), "{path}");
     }
+}
+
+async fn post(state: &Arc<AppState>, path: &str, body: Value) -> (StatusCode, Value) {
+    let request = Request::post(path).header("content-type", "application/json").body(HttpBody::from(body.to_string())).unwrap();
+    let response = router(state.clone()).oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+}
+
+/// Records at scattered dates, alternately tagged `f` and `m`, deliberately unsorted.
+fn bulk_records(n: usize) -> Vec<Value> {
+    (0..n)
+        .map(|i| {
+            let jd = 2_415_020.5 + ((i * 7919) % 73_000) as f64 + 0.37;
+            serde_json::json!({
+                "ref": format!("Person{i}"), "lat": 44.8993 - (i % 50) as f64, "lng": 12.39373 + (i % 90) as f64, "jd": jd,
+                "tags": { "sex": if i % 2 == 0 { "f" } else { "m" }, "group": i % 3 },
+            })
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn bulk_charts_echo_refs_and_tags() {
+    let Some(s) = state() else { return };
+    let mut records = bulk_records(40);
+    records[5] = serde_json::json!({ "ref": "UniqueNameA", "lat": 44.8993, "lng": 12.39373, "dt": "1976-12-08T17:39:45Z", "tags": { "sex": "f" } });
+    records.push(serde_json::json!({ "ref": "BadDate", "lat": 0.0, "lng": 0.0, "dt": "not a date" }));
+    records.push(serde_json::json!({ "ref": "TooEarly", "lat": 0.0, "lng": 0.0, "jd": 0.0 }));
+    records.push(serde_json::json!({ "ref": "NoPlace", "dt": "1990-01-01T00:00:00Z" }));
+    let (status, all) = post(&s, "/bulk/charts?bodies=as,su,mo,ma", Value::Array(records.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{all}");
+    assert_eq!(all["count"], 40);
+    let errors: Vec<&str> = all["errors"].as_array().unwrap().iter().map(|e| e["ref"].as_str().unwrap()).collect();
+    // A malformed item comes first, with its position; then bad values, then failed calculations.
+    assert_eq!(errors, ["NoPlace", "BadDate", "TooEarly"]);
+    assert_eq!(all["errors"][0]["index"], 42);
+    // Input order, with the metadata handed back.
+    let chart = &all["charts"][5];
+    assert_eq!((chart["ref"].as_str(), chart["tags"]["sex"].as_str(), chart["engine"].as_str()), (Some("UniqueNameA"), Some("f"), Some("jpl")));
+    assert_eq!(chart["date"]["utc"], "1976-12-08T17:39:45Z");
+    let keys: Vec<&str> = chart["bodies"].as_array().unwrap().iter().map(|b| b["key"].as_str().unwrap()).collect();
+    assert_eq!(keys, ["as", "su", "mo", "ma"]);
+    // The same numbers as the single-chart endpoint.
+    let single = ok(&s, "/positions?dt=1976-12-08T17:39:45&loc=44.8993,12.39373&bodies=as,su,mo,ma&ps=geo").await;
+    for (bulk, one) in chart["bodies"].as_array().unwrap().iter().zip(single["bodies"].as_array().unwrap()) {
+        assert!((f(&bulk["lng"]) - f(&one["lng"])).abs() < 1e-9);
+    }
+    // The wrapped form and the tag filter.
+    let (_, women) = post(&s, "/bulk/charts?bodies=su&tags=sex:f,group:0", serde_json::json!({ "items": records })).await;
+    let list = women["charts"].as_array().unwrap();
+    assert!(!list.is_empty() && list.len() < 20);
+    assert!(list.iter().all(|c| c["tags"]["sex"] == "f" && c["tags"]["group"] == 0));
+    // Malformed bodies are a 400, not a panic.
+    let (status, bad) = post(&s, "/bulk/charts", serde_json::json!({ "nonsense": true })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+    assert_eq!(bad["valid"], false);
+}
+
+#[tokio::test]
+async fn bulk_aspect_searches_return_only_matches() {
+    let Some(s) = state() else { return };
+    let records = bulk_records(300);
+    let query = "bodies=ma&bodies2=su,mo,me,ve,ma,ju,sa&aspects=150:2.0167";
+    let request = serde_json::json!({ "source": records[0], "target": &records[1..] });
+    let (status, found) = post(&s, &format!("/bulk/aspects/one-to-many?{query}"), request.clone()).await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    assert_eq!(found["source"]["ref"], "Person0");
+    let matches = found["matches"].as_array().unwrap();
+    assert!(!matches.is_empty() && matches.len() < 150, "{}", matches.len());
+    assert_eq!(found["count"], matches.len());
+    for m in matches {
+        assert!(m["ref"].as_str().unwrap().starts_with("Person") && m["tags"]["sex"].is_string());
+        for a in m["aspects"].as_array().unwrap() {
+            assert_eq!((a["a"].as_str(), f(&a["aspect"])), (Some("ma"), 150.0));
+            assert!(f(&a["divergence"]) <= 2.0167);
+        }
+        assert!(f(&m["closest"]) <= 2.0167);
+    }
+    // Filtering by tag keeps a subset of the same matches.
+    let (_, women) = post(&s, &format!("/bulk/aspects/one-to-many?{query}&tags=sex:f"), request.clone()).await;
+    let women = women["matches"].as_array().unwrap();
+    assert!(women.len() < matches.len());
+    assert!(women.iter().all(|w| w["tags"]["sex"] == "f" && matches.iter().any(|m| m["ref"] == w["ref"])));
+    // Progressing the source changes what matches.
+    let (status, progressed) = post(&s, &format!("/bulk/aspects/one-to-many?{query}&prog=a&dt=2020-01-01"), request).await;
+    assert_eq!(status, StatusCode::OK, "{progressed}");
+    assert_eq!(progressed["progressed"]["a"], "progressed");
+    assert_ne!(progressed["matches"], found["matches"]);
+
+    // Pairs: only within each pair, both refs echoed.
+    let pairs: Vec<Value> = records.chunks(2).map(|p| serde_json::json!({ "a": p[0], "b": p[1] })).collect();
+    let (status, found) = post(&s, "/bulk/aspects/pairs?bodies=su,mo,ve,ma&aspects=150:2.0167", Value::Array(pairs)).await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    let matches = found["matches"].as_array().unwrap();
+    assert!(!matches.is_empty() && matches.len() < 150);
+    for m in matches {
+        let (a, b): (usize, usize) = (m["a"]["ref"].as_str().unwrap()[6..].parse().unwrap(), m["b"]["ref"].as_str().unwrap()[6..].parse().unwrap());
+        assert_eq!((a % 2, b), (0, a + 1));
+    }
+
+    // Many to many: every match names two different records of the list.
+    let (status, found) = post(&s, "/bulk/aspects/many-to-many?bodies=ma&bodies2=ve&aspects=150:2.0167", Value::Array(records[..80].to_vec())).await;
+    assert_eq!(status, StatusCode::OK, "{found}");
+    let matches = found["matches"].as_array().unwrap();
+    assert!(!matches.is_empty());
+    assert!(matches.iter().all(|m| m["a"]["ref"] != m["b"]["ref"] && m["aspects"][0]["a"] == "ma" && m["aspects"][0]["b"] == "ve"));
+    // Too long a list for the quadratic search is refused.
+    let (status, _) = post(&s, "/bulk/aspects/many-to-many?bodies=ma", Value::Array(bulk_records(5_001))).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
 }

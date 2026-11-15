@@ -22,7 +22,7 @@ type App = State<Arc<AppState>>;
 const MAX_SAMPLES: f64 = 200_000.0;
 
 /// A moment as Julian Day, ISO UTC string and Unix seconds.
-fn moment(jd: f64) -> Value {
+pub(crate) fn moment(jd: f64) -> Value {
     let utc = julian_day_to_datetime(jd).ok().map(|d| d.and_utc().to_rfc3339_opts(SecondsFormat::Secs, true));
     json!({ "jd": jd, "utc": utc, "unix": julian_day_to_unixtime(jd) })
 }
@@ -31,7 +31,7 @@ fn opt_moment(jd: Option<JdUt>) -> Value {
     jd.map_or(Value::Null, |t| moment(t.value()))
 }
 
-fn geo_json(geo: GeoPos) -> Value {
+pub(crate) fn geo_json(geo: GeoPos) -> Value {
     json!({ "lat": geo.lat, "lng": geo.lng, "alt": geo.alt })
 }
 
@@ -47,13 +47,13 @@ fn cs_key(cs: CoordSystem, ps: Perspective) -> &'static str {
     }
 }
 
-fn ps_key(ps: Perspective) -> &'static str {
+pub(crate) fn ps_key(ps: Perspective) -> &'static str {
     ps.name()
 }
 
 /// A position with its two angles named after the coordinate system: `lng`/`lat`,
 /// `ras`/`dcl` or `azi`/`alt`. Local Space is always on the horizon.
-fn body_json(p: &BodyPos, cs: CoordSystem, ps: Perspective, sidereal: Option<f64>) -> Value {
+pub(crate) fn body_json(p: &BodyPos, cs: CoordSystem, ps: Perspective, sidereal: Option<f64>) -> Value {
     let cs = if ps == Perspective::LocalSpaceHorizon { CoordSystem::Horizontal } else { cs };
     let (first, second) = match cs {
         CoordSystem::Ecliptic => ("lng", "lat"),
@@ -201,7 +201,8 @@ pub async fn longitude(State(app): App, Q(q): Q) -> Reply {
     let lng = app.eph.calc_longitude(body, jd, geo, ps, aya)?;
     Ok(Json(json!({
         "date": moment(jd.value()), "geo": geo_json(geo), "ps": ps_key(ps),
-        "sidereal": aya.is_some(), "ayanamsha": ayanamsha, "key": body.to_string(), "lng": lng,
+        "sidereal": aya.is_some(), "ayanamsha": ayanamsha, "key": body.to_string(), "lng": lng.value,
+        "engine": lng.engine.key(),
     })))
 }
 
@@ -414,7 +415,7 @@ pub async fn moon_phases(State(app): App, Q(q): Q) -> Reply {
     if q.jd_end(jd)?.is_none() {
         phases.truncate(num);
     }
-    let (elongation, speed) = app.eph.moon_elongation(jd)?;
+    let (elongation, speed) = app.eph.moon_elongation(jd)?.value;
     let list: Vec<Value> = phases
         .iter()
         .map(|p| {
