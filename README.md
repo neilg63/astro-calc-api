@@ -120,7 +120,7 @@ rise and set times and the Indian day.
   south westwards instead.
 - `topo` and `local` need a place. Horizontal coordinates need an observer on the Earth.
 
-**Rise and set options** (`/rise-set` and `/indian-day`)
+**Rise and set options** (`/rise-set`, `/rise-sets` and `/indian-day`)
 
 | Parameter | Meaning |
 |---|---|
@@ -184,6 +184,7 @@ observer on the Earth, because it includes the horizon; it is not available in `
 | `/houses` | Angles and house cusps | place, `hsys` |
 | `/ayanamsha` | Ayanamsha values | `aya` |
 | `/rise-set` | Rise, set and meridian transits for the local day | place, `bodies`, rise/set options |
+| `/rise-sets` | The same, with lowest and highest altitude, day by day | place, `bodies`, `days`, `pdays`, rise/set options |
 | `/stations` | Current speed and retrograde stations | `bodies`, `num`, `before`, or a range |
 | `/moon-phases` | The next lunar phases | `num`, or a range; `ps` |
 | `/indian-day` | The sunrise-to-sunrise day and its time units | place, rise/set options |
@@ -194,6 +195,18 @@ observer on the Earth, because it includes the horizon; it is not available in `
 `/progress` has two forms. With `days` it samples real time, `pd` times a day. With `years`
 it is a secondary progression: one day of motion stands for each year, and every sample
 carries the `age` and the real `date` it represents.
+
+`/rise-sets` covers the local days from `pdays` before the date (default 1) up to `days`
+after it (default 8): nine days by default. The default bodies are the Sun, Moon and the
+five classical planets. For each body and day it returns `day_start`, `rise`, `mc`, `set`
+and `ic` as Julian Days (UT), and `alt_min` and `alt_max`, the geometric altitudes in
+degrees at the lower and upper transit. A time is `null` when the event does not happen
+that day, e.g. the Sun in polar winter. At most 20,000 body-days per request.
+
+```json
+{ "key": "su", "days": [ { "day_start": 2461366.5099, "rise": 2461366.8383, "mc": 2461367.0003,
+  "set": 2461367.1620, "ic": 2461367.5004, "alt_min": -54.2375, "alt_max": 13.7482 }, … ] }
+```
 
 `/longitude` and `/longitudes` return nothing but longitudes and cost about half as much
 as full positions. Naming an ayanamsha in `aya` makes them sidereal directly; `sid` is not

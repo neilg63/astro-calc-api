@@ -120,7 +120,7 @@ pub async fn index(State(app): App) -> Json<Value> {
         "station_table": app.stations.is_some(),
         "endpoints": [
             "/bodies", "/stars", "/longitude", "/longitudes", "/position", "/positions", "/extended-position", "/extended-positions", "/progress", "/ascendant", "/angles", "/houses",
-            "/ayanamsha", "/rise-set", "/stations", "/moon-phases", "/indian-day", "/pheno", "/aspects"
+            "/ayanamsha", "/rise-set", "/rise-sets", "/stations", "/moon-phases", "/indian-day", "/pheno", "/aspects"
         ],
     }))
 }
@@ -356,6 +356,53 @@ pub async fn rise_set(State(app): App, Q(q): Q) -> Reply {
     Ok(Json(json!({ "date": moment(jd.value()), "geo": geo_json(geo), "options": rise_set_json(&opts), "bodies": list })))
 }
 
+/// Most local days (bodies × days) one `/rise-sets` request may ask for.
+const MAX_DAYS: f64 = 20_000.0;
+
+/// `/rise-sets`: rise, upper transit, set and lower transit of each body, with its lowest
+/// and highest altitude, for each local day from `pdays` days before the date (default 1) up
+/// to `days` days after it (default 8, exclusive): nine days by default. Times are Julian
+/// Days (UT); altitudes are degrees.
+pub async fn rise_sets(State(app): App, Q(q): Q) -> Reply {
+    let (jd, geo, opts) = (q.jd()?, q.require_geo()?, q.rise_set_options()?);
+    let bodies = q.bodies(&[Body::Sun, Body::Moon, Body::Mercury, Body::Venus, Body::Mars, Body::Jupiter, Body::Saturn])?;
+    let whole = |name: &str, v: Option<f64>, default: f64| match v.unwrap_or(default) {
+        n if n.is_finite() && n >= 0.0 && n.fract() == 0.0 => Ok(n),
+        n => Err(ApiError::bad(format!("{name} must be a whole number of days, not {n}"))),
+    };
+    let (days, pdays) = (whole("days", q.days, 8.0)?, whole("pdays", q.pdays, 1.0)?);
+    if days + pdays == 0.0 {
+        return Err(ApiError::bad("days and pdays are both 0: there are no days to show"));
+    }
+    if (days + pdays) * bodies.len() as f64 > MAX_DAYS {
+        return Err(ApiError::bad(format!("too many days; the limit is {MAX_DAYS} (bodies × days) per request")));
+    }
+    let (first, n) = (-pdays as i64, (days + pdays) as i64);
+    // Each day is several root searches: keep a long span off the async threads.
+    let worker = app.clone();
+    let list = tokio::task::spawn_blocking(move || -> Result<Vec<Value>, ApiError> {
+        let mut list = Vec::with_capacity(bodies.len());
+        for body in bodies {
+            let mut items = Vec::with_capacity(n as usize);
+            for i in first..first + n {
+                let d = worker.eph.day_transits(body, jd.add_days(i as f64), geo, opts)?;
+                let t = |e: Option<JdUt>| e.map(JdUt::value);
+                items.push(json!({
+                    "day_start": d.day_start.value(), "rise": t(d.rise), "mc": t(d.mc), "set": t(d.set), "ic": t(d.ic),
+                    "alt_min": d.min_alt, "alt_max": d.max_alt,
+                }));
+            }
+            list.push(json!({ "key": body.to_string(), "days": items }));
+        }
+        Ok(list)
+    })
+    .await
+    .map_err(|e| ApiError { status: axum::http::StatusCode::INTERNAL_SERVER_ERROR, message: e.to_string() })??;
+    Ok(Json(json!({
+        "date": moment(jd.value()), "geo": geo_json(geo), "days": days, "pdays": pdays, "options": rise_set_json(&opts), "bodies": list,
+    })))
+}
+
 /// The rise/set options in force, so a client can see what its parameters resolved to.
 fn rise_set_json(o: &astro_calc_core::RiseSetOptions) -> Value {
     use astro_calc_core::{DiscAlignment, Horizon, Refraction};
@@ -378,7 +425,7 @@ fn rise_set_json(o: &astro_calc_core::RiseSetOptions) -> Value {
     };
     json!({
         "disc": disc, "refraction": refraction, "pressure": pressure, "temp": temp, "fixed": o.fixed_disc,
-        "horizon": horizon, "twilight": twilight, "dip": o.dip, "geocentric": o.geocentric, "ignoreLatitude": o.ignore_latitude,
+        "horizon": horizon, "twilight": twilight, "dip": o.dip, "geocentric": o.geocentric, "ignore_latitude": o.ignore_latitude,
     })
 }
 

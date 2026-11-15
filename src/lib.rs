@@ -58,6 +58,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/houses", get(handlers::houses))
         .route("/ayanamsha", get(handlers::ayanamsha))
         .route("/rise-set", get(handlers::rise_set))
+        .route("/rise-sets", get(handlers::rise_sets))
         .route("/stations", get(handlers::stations))
         .route("/moon-phases", get(handlers::moon_phases))
         .route("/indian-day", get(handlers::indian_day))

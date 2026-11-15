@@ -1,5 +1,6 @@
 //! Endpoint tests against the router, without a network socket.
-//! They need the ephemeris files in `../astro-calc-core/data` and are skipped otherwise.
+//! They need a planetary ephemeris file in `../astro-calc-core/data` (any astro-calc-build
+//! tier) and are skipped otherwise.
 
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -17,7 +18,8 @@ fn state() -> Option<Arc<AppState>> {
     STATE
         .get_or_init(|| {
             let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../astro-calc-core/data");
-            dir.join("de440s.bsp").exists().then(|| Arc::new(AppState::load(dir).unwrap()))
+            let planetary = scan_dir(&dir).is_ok_and(|files| files.iter().any(|f| f.is_planetary()));
+            planetary.then(|| Arc::new(AppState::load(dir).unwrap()))
         })
         .clone()
 }
@@ -255,11 +257,37 @@ async fn chart_endpoints() {
     }
     let v = ok(&s, &format!("/rise-set?{q}&bodies=su&twilight=civil&disc=upper")).await;
     assert_eq!((v["options"]["twilight"].as_str(), f(&v["options"]["horizon"]), v["options"]["disc"].as_str()), (Some("civil"), -6.0, Some("upper")));
-    assert_eq!(ok(&s, &format!("/indian-day?{q}&hindu=1")).await["options"]["ignoreLatitude"], true);
+    assert_eq!(ok(&s, &format!("/indian-day?{q}&hindu=1")).await["options"]["ignore_latitude"], true);
 
     let v = ok(&s, &format!("/indian-day?{q}")).await;
     let day = s.eph.indian_day(JD, geo, RiseSetOptions::default()).unwrap();
     assert_eq!((f(&v["rise"]["jd"]), v["ghati"].as_u64(), v["display"].as_str()), (day.rise_jd, Some(day.ghati() as u64), Some(day.to_ghati_string().as_str())));
+
+    // Day by day: by default the day before the date and the 8 after it start.
+    let v = ok(&s, &format!("/rise-sets?{q}")).await;
+    assert_eq!((f(&v["days"]), f(&v["pdays"])), (8.0, 1.0));
+    let keys: Vec<_> = v["bodies"].as_array().unwrap().iter().map(|b| b["key"].as_str().unwrap()).collect();
+    assert_eq!(keys, ["su", "mo", "me", "ve", "ma", "ju", "sa"]);
+    for (i, day) in v["bodies"][1]["days"].as_array().unwrap().iter().enumerate() {
+        let d = s.eph.day_transits(Body::Moon, JD + (i as f64 - 1.0), geo, RiseSetOptions::default()).unwrap();
+        assert_eq!(f(&day["day_start"]), d.day_start.value());
+        assert_eq!(day["rise"].as_f64(), d.rise.map(JdUt::value));
+        assert_eq!(day["ic"].as_f64(), d.ic.map(JdUt::value));
+        // serde_json may parse a float one unit off in its last bit.
+        assert!((f(&day["alt_min"]) - d.min_alt.unwrap()).abs() < 1e-12 && (f(&day["alt_max"]) - d.max_alt.unwrap()).abs() < 1e-12);
+    }
+    assert_eq!(v["bodies"][1]["days"].as_array().unwrap().len(), 9);
+    // Explicit span and options, applied to every day.
+    let v = ok(&s, &format!("/rise-sets?{q}&bodies=su&days=3&pdays=0&disc=upper")).await;
+    let days = v["bodies"][0]["days"].as_array().unwrap();
+    assert_eq!(days.len(), 3);
+    let last = s.eph.day_transits(Body::Sun, JD + 2.0, geo, RiseSetOptions::upper_limb()).unwrap();
+    assert_eq!(f(&days[2]["set"]), last.set.unwrap().value());
+    assert_eq!(f(&days[1]["day_start"]) - f(&days[0]["day_start"]), 1.0);
+    // Near the pole the Sun neither rises nor sets in midwinter: the times are null.
+    let v = ok(&s, &format!("/rise-sets?jd={JD}&loc=78.2,15.6&bodies=su&days=1&pdays=0")).await;
+    let day = &v["bodies"][0]["days"][0];
+    assert!(day["rise"].is_null() && day["set"].is_null() && day["mc"].is_number(), "{day}");
 
     let v = ok(&s, &format!("/pheno?jd={JD}&bodies=ve,ce")).await;
     assert_eq!(f(&v["bodies"][0]["magnitude"]), s.eph.phenomena(Body::Venus, JD).unwrap().magnitude);
@@ -375,7 +403,12 @@ async fn information_and_errors() {
         ("/progress?bodies=su", StatusCode::BAD_REQUEST),
         ("/progress?days=1000000&pd=24", StatusCode::BAD_REQUEST),
         ("/aspects?aspects=90:x", StatusCode::BAD_REQUEST),
-        ("/positions?dt=1700-01-01", StatusCode::UNPROCESSABLE_ENTITY),
+        ("/rise-sets", StatusCode::BAD_REQUEST),
+        ("/rise-sets?loc=10,10&days=1.5", StatusCode::BAD_REQUEST),
+        ("/rise-sets?loc=10,10&pdays=-1", StatusCode::BAD_REQUEST),
+        ("/rise-sets?loc=10,10&days=0&pdays=0", StatusCode::BAD_REQUEST),
+        ("/rise-sets?loc=10,10&days=5000", StatusCode::BAD_REQUEST),
+        ("/positions?jd=-4000000", StatusCode::UNPROCESSABLE_ENTITY), // 15,665 BCE: before every JPL file
         ("/nowhere", StatusCode::NOT_FOUND),
     ] {
         let (got, body) = get(&s, path).await;

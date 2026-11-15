@@ -52,6 +52,8 @@ pub struct Params {
     /// Span in days, or in years.
     pub days: Option<f64>,
     pub years: Option<f64>,
+    /// Days before the date, for day-by-day series (`/rise-sets`).
+    pub pdays: Option<f64>,
     /// Samples per day (or per year with `years`) for progress series.
     pub pd: Option<f64>,
     /// House system letters, comma-separated, or `all`.
