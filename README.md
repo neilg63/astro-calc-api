@@ -120,7 +120,7 @@ rise and set times and the Indian day.
   south westwards instead.
 - `topo` and `local` need a place. Horizontal coordinates need an observer on the Earth.
 
-**Rise and set options** (`/rise-set` and `/indian-day`)
+**Rise and set options** (`/rise-set`, `/rise-sets` and `/indian-day`)
 
 | Parameter | Meaning |
 |---|---|
@@ -184,19 +184,265 @@ observer on the Earth, because it includes the horizon; it is not available in `
 | `/houses` | Angles and house cusps | place, `hsys` |
 | `/ayanamsha` | Ayanamsha values | `aya` |
 | `/rise-set` | Rise, set and meridian transits for the local day | place, `bodies`, rise/set options |
+| `/rise-sets` | The same, with lowest and highest altitude, day by day | place, `bodies`, `days`, `pdays`, rise/set options |
 | `/stations` | Current speed and retrograde stations | `bodies`, `num`, `before`, or a range |
 | `/moon-phases` | The next lunar phases | `num`, or a range; `ps` |
 | `/indian-day` | The sunrise-to-sunrise day and its time units | place, rise/set options |
 | `/pheno` | Phase, elongation, diameter and magnitude | `bodies` |
 | `/aspects` | Aspects between bodies at one moment | `bodies`, `aspects` or `orb`, `ps` |
+| `POST /bulk/...` | Charts and aspect searches over many records | see [Bulk endpoints](#bulk-endpoints) |
 
 `/progress` has two forms. With `days` it samples real time, `pd` times a day. With `years`
 it is a secondary progression: one day of motion stands for each year, and every sample
 carries the `age` and the real `date` it represents.
 
+`/rise-sets` covers the local days from `pdays` before the date (default 1) up to `days`
+after it (default 8): nine days by default. The default bodies are the Sun, Moon and the
+five classical planets. For each body and day it returns `day_start`, `rise`, `mc`, `set`
+and `ic` as Julian Days (UT), and `alt_min` and `alt_max`, the geometric altitudes in
+degrees at the lower and upper transit. A time is `null` when the event does not happen
+that day, e.g. the Sun in polar winter. At most 20,000 body-days per request.
+
+```json
+{ "key": "su", "days": [ { "day_start": 2461366.5099, "rise": 2461366.8383, "mc": 2461367.0003,
+  "set": 2461367.1620, "ic": 2461367.5004, "alt_min": -54.2375, "alt_max": 13.7482 }, … ] }
+```
+
 `/longitude` and `/longitudes` return nothing but longitudes and cost about half as much
 as full positions. Naming an ayanamsha in `aya` makes them sidereal directly; `sid` is not
 needed there.
+
+## Bulk endpoints
+
+For large sets of records the bulk endpoints take a `POST` with the records as JSON
+(`content-type: application/json`). The options go in the query string, with the same
+parameters as the `GET` endpoints. They are generic: the service calculates and filters by
+position, and hands back each record's own `ref` and `tags` untouched, so anything specific
+to an application stays in the client.
+
+| Endpoint | Body | Returns |
+|---|---|---|
+| `POST /bulk/charts` | a list of records | the positions of `bodies` for each record |
+| `POST /bulk/aspects/pairs` | a list of pairs | the pairs in aspect |
+| `POST /bulk/aspects/one-to-many` | a source record and a list of targets | the targets in aspect to the source |
+| `POST /bulk/aspects/many-to-many` | a list of records | every two records in aspect |
+
+### The record
+
+```json
+{
+  "ref": "UniqueNameA",
+  "lat": 44.8993,
+  "lng": 12.39373,
+  "alt": 0,
+  "dt": "1976-12-08T17:39:45Z",
+  "tags": { "sex": "f" }
+}
+```
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `ref` | string | yes | The client's identifier, returned with every result. Not checked for uniqueness |
+| `lat`, `lng` | number | yes | Latitude (−90 to 90, north positive) and longitude (−180 to 180, east positive) in degrees |
+| `alt` | number | no | Altitude in metres. Default 0 |
+| `dt` | string | one of `dt`, `jd` | UTC date-time, `YYYY-MM-DDThh:mm:ss`, with or without a final `Z`. Years before 1000 are accepted in the proleptic Gregorian calendar with astronomical years, negative ones included: `0900-07-06T09:24:37`, `-0043-03-15` (44 BC) |
+| `jd` | number | one of `dt`, `jd` | Julian Day (UT). Takes precedence over `dt` |
+| `tags` | any JSON | no | Returned with every result. If it is an object, its members can be used by the `tags` filter |
+
+Records need not be sorted by date. Other fields are ignored.
+
+### Request bodies
+
+A list of records, for `/bulk/charts` and `/bulk/aspects/many-to-many`, sent either bare or
+under `items`:
+
+```json
+[
+  { "ref": "UniqueNameA", "lat": 44.8993, "lng": 12.39373, "dt": "1976-12-08T17:39:45Z", "tags": { "sex": "f" } },
+  { "ref": "UniqueNameB", "lat": 48.1462, "lng": 11.38975, "dt": "1969-07-06T09:24:37Z" }
+]
+```
+
+```json
+{ "items": [ { "ref": "UniqueNameA", "lat": 44.8993, "lng": 12.39373, "jd": 2443121.2359375 } ] }
+```
+
+Pairs, for `/bulk/aspects/pairs` (also bare or under `items`). Aspects are sought only
+between the `a` and the `b` of the same pair:
+
+```json
+[
+  {
+    "a": { "ref": "UniqueNameA", "lat": 62.1854, "lng": 16.6714, "dt": "1973-04-17T11:23:19Z" },
+    "b": { "ref": "UniqueNameB", "lat": 44.8993, "lng": 12.39373, "dt": "1976-12-08T17:39:45Z" }
+  }
+]
+```
+
+One to many, for `/bulk/aspects/one-to-many` (`targets` is accepted for `target`):
+
+```json
+{
+  "source": { "ref": "UniqueNameA", "lat": 62.1854, "lng": 16.6714, "dt": "1973-04-17T11:23:19Z" },
+  "target": [
+    { "ref": "UniqueNameB", "lat": 44.8993, "lng": 12.39373, "dt": "1976-12-08T17:39:45Z", "tags": { "sex": "f" } },
+    { "ref": "UniqueNameC", "lat": 48.1462, "lng": 11.38975, "dt": "1969-07-06T09:24:37Z", "tags": { "sex": "f" } }
+  ]
+}
+```
+
+### Query parameters
+
+| Parameter | Used by | Meaning |
+|---|---|---|
+| `bodies` | all | Bodies of the chart, or of chart A in an aspect search. Default: the default set (with the ascendant) for charts; Sun, Moon and planets for aspects |
+| `bodies2` | aspects | Bodies of chart B. Default: the same as `bodies` |
+| `aspects`, `orb` | aspects | As for `/aspects`: `angle:orb` pairs such as `aspects=150:2.0167`, or one `orb` for the major aspects. An aspect counts on either side of chart A |
+| `tags` | charts, one-to-many, many-to-many | Keep only records whose `tags` have all these members, as `key:value` pairs: `tags=sex:f,group:2`. Applied before anything is calculated. Not applied to `source` or to pairs |
+| `prog` | aspects | Compare secondary-progressed charts (a day for each year of age) as they stand on `dt`/`jd` (default now): `a`, `b` or `ab` |
+| `ps` | all | `geo` (default) or `topo` |
+| `aya` with `sid=1` | all | Sidereal longitudes, each chart with the ayanamsha of its own date |
+
+In an aspect search chart A is the `a` of a pair, the `source`, or either record of a
+many-to-many list; chart B is the `b`, a target, or the other record.
+
+### Response: `/bulk/charts`
+
+`POST /bulk/charts?bodies=as,su,mo`
+
+```json
+{
+  "ps": "geocentric",
+  "sidereal": null,
+  "count": 1,
+  "charts": [
+    {
+      "ref": "UniqueNameB",
+      "tags": { "sex": "f" },
+      "date": { "jd": 2443121.2359375, "utc": "1976-12-08T17:39:45Z", "unix": 218914785 },
+      "geo": { "lat": 44.8993, "lng": 12.39373, "alt": 0.0 },
+      "engine": "jpl",
+      "bodies": [
+        { "key": "as", "dist": 0.0, "dist_speed": 0.0, "lng": 107.56774342163084, "lat": 0.0, "lng_speed": 291.814407679972, "lat_speed": 0.0 },
+        { "key": "su", "dist": 0.9848618676039517, "dist_speed": -0.000122096962651419, "lng": 256.7761586614102, "lat": -0.00011947845843578805, "lng_speed": 1.015673628529612, "lat_speed": -1.4649013064418188e-05 },
+        { "key": "mo", "dist": 0.0026606808365049854, "dist_speed": -1.8793591885415267e-05, "lng": 98.8716828827942, "lat": -4.704603314531093, "lng_speed": 12.3571274141554, "lat_speed": -0.446406895446394 }
+      ]
+    }
+  ],
+  "errors": []
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `ps` | The perspective used |
+| `sidereal` | Key of the ayanamsha applied, or `null` for tropical longitudes |
+| `count` | Number of charts returned |
+| `charts` | One per record that could be calculated, in the order of the request |
+| `charts[].ref`, `.tags` | As sent; `tags` is left out if none were sent |
+| `charts[].date`, `.geo` | The moment and place, as in the `GET` endpoints |
+| `charts[].engine` | How the positions were calculated: `jpl`, or `analytic` for the built-in series |
+| `charts[].bodies` | Ecliptic positions in the order of `bodies`, as in `/positions`: degrees, degrees per day, AU. A negative `lng_speed` means retrograde |
+| `errors` | Records left out; see [Errors in bulk requests](#errors-in-bulk-requests) |
+
+### Response: aspect searches
+
+`POST /bulk/aspects/one-to-many?bodies=su,mo,ve,ma&aspects=90:6,150:3&tags=sex:f`
+
+```json
+{
+  "ps": "geocentric",
+  "sidereal": null,
+  "bodies": ["su", "mo", "ve", "ma"],
+  "bodies2": ["su", "mo", "ve", "ma"],
+  "targets": [ { "angle": 90.0, "orb": 6.0 }, { "angle": 150.0, "orb": 3.0 } ],
+  "source": { "ref": "UniqueNameA", "tags": { "sex": "m" } },
+  "count": 2,
+  "matches": [
+    {
+      "ref": "UniqueNameB",
+      "tags": { "sex": "f" },
+      "closest": 0.23993932459211464,
+      "aspects": [
+        { "a": "su", "b": "ve", "lng_a": 27.309892975443553, "lng_b": 299.05427383564705, "aspect": 90.0, "orb": 6.0, "divergence": 1.7443808602034778 },
+        { "a": "ve", "b": "ve", "lng_a": 29.29421316023914, "lng_b": 299.05427383564705, "aspect": 90.0, "orb": 6.0, "divergence": 0.23993932459211464 }
+      ]
+    },
+    {
+      "ref": "UniqueNameC",
+      "tags": { "sex": "f" },
+      "closest": 1.2149320634413243,
+      "aspects": [
+        { "a": "ma", "b": "su", "lng_a": 315.33643587500603, "lng_b": 104.12150381156471, "aspect": 150.0, "orb": 3.0, "divergence": 1.2149320634413243 }
+      ]
+    }
+  ],
+  "errors": []
+}
+```
+
+`/bulk/aspects/pairs` and `/bulk/aspects/many-to-many` have no `source`, and each match
+names both records:
+
+```json
+{
+  "a": { "ref": "UniqueNameB", "tags": { "sex": "f" } },
+  "b": { "ref": "UniqueNameC", "tags": { "sex": "f" } },
+  "closest": 0.3898435798829496,
+  "aspects": [
+    { "a": "ve", "b": "ve", "lng_a": 299.05427383564705, "lng_b": 59.444117415530016, "aspect": 120.0, "orb": 6.0, "divergence": 0.3898435798829496 }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `ps`, `sidereal` | As for charts |
+| `bodies`, `bodies2` | The bodies taken from chart A and from chart B |
+| `targets` | The aspects sought, each with its orb |
+| `progressed` | Only with `prog`: the `date` progressed to, and whether `a` and `b` are `progressed` or `natal` |
+| `source` | One-to-many only: the source's `ref` and `tags` |
+| `count` | Number of matches |
+| `matches` | Only the records, or pairs, with at least one aspect, in the order of the request |
+| `matches[].ref`, `.tags` | One-to-many: the matching target |
+| `matches[].a`, `.b` | Pairs and many-to-many: `ref` and `tags` of the records taken as chart A and chart B |
+| `matches[].closest` | The smallest `divergence` among the aspects, for ranking |
+| `matches[].aspects[]` | `a`, `b`: body keys of chart A and B; `lng_a`, `lng_b`: their longitudes; `aspect`, `orb`: the target matched; `divergence`: degrees from exact |
+| `errors` | Records left out |
+
+In a many-to-many search with the same `bodies` and `bodies2` each two records appear once,
+the earlier of the list as `a`. With different lists they are tried both ways round, and
+`a` is the record whose `bodies` were used.
+
+### Errors in bulk requests
+
+A problem with one record never fails the request. The record is left out and listed:
+
+```json
+"errors": [
+  { "index": 0, "ref": "X", "error": "invalid item: invalid type: string \"north\", expected f64" },
+  { "index": 1, "ref": null, "error": "invalid item: missing field `ref`" },
+  { "ref": "Y", "error": "invalid location: latitude 95 out of range -90..=90" },
+  { "ref": "Z", "error": "1585-07-06 (JD 2300155.501488508) is outside the JPL ephemeris data for NAIF id 399, which covers 1849-12-26 to 2150-01-22" }
+]
+```
+
+An item that cannot be read at all (a missing or mistyped field) has its position in the
+list as `index`, and its `ref` if one could be found. A pair is left out if either of its
+records fails. The request as a whole fails, with `valid: false` and an `error` as for the
+other endpoints, only when:
+
+| Status | Cause |
+|---|---|
+| 400 | The body is not JSON, is not a list (or has none under `items`, or under `target`), the `source` is missing or invalid, or a query parameter is wrong |
+| 413 | More than 100,000 records, more than 5,000 after filtering for a many-to-many search, or a body over 64 MB |
+| 422 | The `source` chart cannot be calculated |
+
+### Example
+
+```bash
+curl -X POST 'http://127.0.0.1:8087/bulk/aspects/one-to-many?bodies=ma&bodies2=su,mo,ve&aspects=150:2.0167&tags=sex:f' -H 'content-type: application/json' -d @records.json
+```
 
 ## Examples
 

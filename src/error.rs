@@ -28,7 +28,7 @@ impl From<CalcError> for ApiError {
     fn from(e: CalcError) -> Self {
         let status = match &e {
             // The date is outside the loaded ephemeris files, or the body's file is absent.
-            CalcError::Ephem(EphemError::NoData { .. }) => StatusCode::UNPROCESSABLE_ENTITY,
+            CalcError::Ephem(EphemError::NoData { .. } | EphemError::BeyondAnalytic { .. }) => StatusCode::UNPROCESSABLE_ENTITY,
             CalcError::Ephem(_) => StatusCode::INTERNAL_SERVER_ERROR,
             _ => StatusCode::BAD_REQUEST,
         };

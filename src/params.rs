@@ -1,6 +1,6 @@
 //! Query-string parameters shared by every endpoint.
 
-use astro_calc_core::{AspectOrb, Ayanamsha, Body, CoordSystem, GeoPos, HouseSystem, JdUt, Perspective, RiseSetOptions, aspect_orb, parse_body_list, parse_body_list_for};
+use astro_calc_core::{AspectOrb, ChartKind, Ayanamsha, Body, CoordSystem, GeoPos, HouseSystem, JdUt, Perspective, RiseSetOptions, aspect_orb, parse_body_list, parse_body_list_for};
 use axum::extract::{FromRequestParts, Query};
 use axum::http::request::Parts;
 use chrono::Utc;
@@ -52,6 +52,8 @@ pub struct Params {
     /// Span in days, or in years.
     pub days: Option<f64>,
     pub years: Option<f64>,
+    /// Days before the date, for day-by-day series (`/rise-sets`).
+    pub pdays: Option<f64>,
     /// Samples per day (or per year with `years`) for progress series.
     pub pd: Option<f64>,
     /// House system letters, comma-separated, or `all`.
@@ -86,6 +88,13 @@ pub struct Params {
     /// default aspects.
     pub aspects: Option<String>,
     pub orb: Option<f64>,
+    /// Bulk aspect searches: the bodies of the second chart (default: the same as `bodies`).
+    pub bodies2: Option<String>,
+    /// Bulk requests: keep only records with these tags, as `key:value` pairs, e.g. `sex:f`.
+    pub tags: Option<String>,
+    /// Bulk aspect searches: which charts are secondary-progressed to the date given by
+    /// `dt` or `jd` (default now): `a`, `b` or `ab`.
+    pub prog: Option<String>,
     /// Legacy aliases: `topo=1` for `ps=topo`; `eq=1` for `cs=equ`, `eq=3` for `cs=hor`.
     pub topo: Option<u8>,
     pub eq: Option<u8>,
@@ -396,5 +405,36 @@ impl Params {
                 Ok(aspect_orb(angle, orb))
             })
             .collect()
+    }
+
+    /// `bodies2`, if given.
+    pub fn bodies2(&self) -> Result<Option<Vec<Body>>, ApiError> {
+        match self.bodies2.as_deref() {
+            Some(list) if !list.trim().is_empty() => parse_body_list(list).map(Some).map_err(|e| ApiError::bad(e.to_string())),
+            _ => Ok(None),
+        }
+    }
+
+    /// The `key:value` pairs of `tags`.
+    pub fn tag_filter(&self) -> Result<Vec<(String, String)>, ApiError> {
+        let Some(list) = self.tags.as_deref() else { return Ok(Vec::new()) };
+        items(list)
+            .map(|pair| match pair.split_once(':') {
+                Some((key, value)) if !key.trim().is_empty() => Ok((key.trim().to_string(), value.trim().to_string())),
+                _ => Err(ApiError::bad(format!("invalid tag filter: {pair} (use key:value)"))),
+            })
+            .collect()
+    }
+
+    /// The chart kinds of A and B named by `prog`, if it was given.
+    pub fn progressed(&self) -> Result<Option<(ChartKind, ChartKind)>, ApiError> {
+        use ChartKind::{Natal, Progressed};
+        Ok(match self.prog.as_deref().map(str::to_ascii_lowercase).as_deref() {
+            None | Some("" | "0" | "none") => None,
+            Some("a") => Some((Progressed, Natal)),
+            Some("b") => Some((Natal, Progressed)),
+            Some("ab" | "both" | "1") => Some((Progressed, Progressed)),
+            Some(other) => return Err(ApiError::bad(format!("unknown prog: {other} (use a, b or ab)"))),
+        })
     }
 }

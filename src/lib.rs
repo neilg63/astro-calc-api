@@ -1,8 +1,9 @@
 //! REST API over `astro-calc-core`.
 //!
-//! Every endpoint is a `GET` that answers for one moment (`dt` or `jd`), optionally at one
-//! place, and returns JSON. See the README for the parameters.
+//! Most endpoints are a `GET` that answers for one moment (`dt` or `jd`), optionally at one
+//! place, and returns JSON. The bulk endpoints are `POST`s that take many records in a JSON body. See the README for the parameters.
 
+pub mod bulk;
 pub mod config;
 pub mod error;
 pub mod handlers;
@@ -13,7 +14,8 @@ use std::sync::Arc;
 
 use astro_calc_core::{EphemError, Ephemeris, StationTable};
 use axum::Router;
-use axum::routing::get;
+use axum::extract::DefaultBodyLimit;
+use axum::routing::{get, post};
 
 /// What the handlers share: the ephemeris and, if present, a pre-computed station table.
 pub struct AppState {
@@ -56,11 +58,17 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/houses", get(handlers::houses))
         .route("/ayanamsha", get(handlers::ayanamsha))
         .route("/rise-set", get(handlers::rise_set))
+        .route("/rise-sets", get(handlers::rise_sets))
         .route("/stations", get(handlers::stations))
         .route("/moon-phases", get(handlers::moon_phases))
         .route("/indian-day", get(handlers::indian_day))
         .route("/pheno", get(handlers::pheno))
         .route("/aspects", get(handlers::aspects))
+        .route("/bulk/charts", post(bulk::charts))
+        .route("/bulk/aspects/pairs", post(bulk::aspects_pairs))
+        .route("/bulk/aspects/one-to-many", post(bulk::aspects_one_to_many))
+        .route("/bulk/aspects/many-to-many", post(bulk::aspects_many_to_many))
+        .layer(DefaultBodyLimit::max(bulk::MAX_BODY_BYTES))
         .fallback(handlers::not_found)
         .with_state(state)
 }
