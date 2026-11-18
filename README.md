@@ -169,6 +169,11 @@ In responses the two angles of a position are named after the coordinate system:
 | `hor` | `azi` (azimuth), `alt` (altitude) | `azi_speed`, `alt_speed` |
 | `all` | all six | all six |
 
+In topocentric mode (`ps=topo` or `ps=local`, and by default whenever a place is given),
+`/position`, `/positions` and the extended endpoints add `points`: the ascendant, descendant,
+MC, IC, ARMC, vertex and the other chart angles of the moment and place, as in `/angles`.
+These are tropical longitudes; `sid` does not change them.
+
 `/extended-position` and `/extended-positions` are the same as `/position` and `/positions`
 with `cs=all`. `dist` and `dist_speed` (AU) are the same in every system. For an observer on the Earth (`geo`, `topo` or `local`) `cs=all` needs a place, because it includes the
 horizon. From any other centre (`helio`, `seleno` and so on) there is no horizon: no place is needed and
@@ -188,12 +193,15 @@ horizon. From any other centre (`helio`, `seleno` and so on) there is no horizon
 | `/extended-position` | One body in all three coordinate systems | `body`, `ps`, `aya`, `sid`, place |
 | `/extended-positions` | Several bodies in all three coordinate systems | `bodies`, `ps`, `aya`, `sid`, place |
 | `/progress` | Positions over a series of times | `bodies`, `days` or `years`, `pd` |
-| `/ascendant` | The ascendant | place |
+| `/ascendant` | The ascendant and the related angles, as `points`. The top-level `ascendant` field is deprecated: read `points.ascendant` | place |
+| `/ascendant-progress` | The ascendant at even steps, as `ascendants` (`jd`, `lng`), from `pdays` days before the moment (default 1) to `days` days after it (default 8), with the `points` of the moment itself | place, `days`, `pdays`, `pd` (samples per day, default 24) |
 | `/angles` | Ascendant, MC, vertex and the other angles | place |
 | `/houses` | Angles and house cusps | place, `hsys` |
 | `/ayanamsha` | Ayanamsha values | `aya` |
 | `/rise-set` | Rise, set and meridian transits for the local day | place, `bodies`, rise/set options |
 | `/rise-sets` | The same, with lowest and highest altitude, day by day | place, `bodies`, `days`, `pdays`, rise/set options |
+| `/transposed-positions` | Each body's place at a historic moment, carried into the sky of the date, in all three coordinate systems | place, `h_dt` or `h_jd`, historic place, `bodies`, `ps` |
+| `/transposed-transits` | Rise, set and meridian transits of those transposed places, day by day | place, `h_dt` or `h_jd`, historic place, `bodies`, `ps`, `days`, `pdays`, rise/set options |
 | `/stations` | Current speed and retrograde stations | `bodies`, `num`, `before`, or a range |
 | `/moon-phases` | The next lunar phases | `num`, or a range; `ps` |
 | `/indian-day` | The sunrise-to-sunrise day and its time units | place, rise/set options |
@@ -212,8 +220,41 @@ and `ic` as Julian Days (UT), and `alt_min` and `alt_max`, the geometric altitud
 degrees at the lower and upper transit. A time is `null` when the event does not happen
 that day, e.g. the Sun in polar winter. At most 20,000 body-days per request.
 
+### Transposed positions and transits
+
+`/transposed-positions` and `/transposed-transits` take where each body stood at a historic
+moment, typically a birth, and treat that ecliptic longitude and latitude as a fixed point
+in the sky of the date and place asked about.
+
+| Parameter | Meaning |
+|---|---|
+| `dt` or `jd`, and `loc` (or `lat`, `lng`, `alt`) | The target moment and place. The place is required. |
+| `h_dt` or `h_jd` | The historic moment. Required. `h_dt` takes the same offset as `dt`. |
+| `h_loc` (or `h_lat`, `h_lng`, `h_alt`) | The historic place. |
+| `ps` | `topo`: the historic positions are seen from the historic place, the default when one is given. `geo`: from the centre of the Earth, the default without one. |
+| `bodies` | Default: the Sun, Moon and the five classical planets. |
+
+Both return `date` and `geo` as `/positions` does, `historic_date` and `historic_geo` in the
+same form (`historic_geo` is `null` in geocentric mode), and `ps`. In topocentric mode they
+add `points` and `historic_points`: the ascendant, MC and the other chart angles at the
+target and at the historic moment and place, as in `/angles`.
+
+Each body is keyed `tp:` and its source (`tp:su`), with the plain key in `source`.
+
+`/transposed-positions` gives each point in all three coordinate systems, with the fields of
+`/extended-positions`. `lng` and `lat` are the historic values; `ras` and `dcl` use the
+obliquity of the date; `azi` and `alt` are for the target place and moment. Only `azi_speed`
+and `alt_speed` are not zero, since the point turns with the sky and has no motion of its
+own. `dist` is the body's distance at the historic moment.
+
+`/transposed-transits` gives the same days and fields as `/rise-sets`, with each point's
+`lng` and `lat`, but `days` defaults to 1 and `pdays` to 0. A fixed point has no disc and
+no parallax, so of the rise/set options only `horizon`, `refraction` (with `pressure` and
+`temp`), `dip` and `nolat` have an effect; `horizon_alt` in the response is the resulting
+altitude at rising and setting.
+
 ```json
-{ "key": "su", "days": [ { "day_start": 2461366.5099, "rise": 2461366.8383, "mc": 2461367.0003,
+{ "key": "tp:su", "source": "su", "lng": 93.5725, "lat": 0.0001, "days": [ { "day_start": 2461366.5099, "rise": 2461366.8383, "mc": 2461367.0003,
   "set": 2461367.1620, "ic": 2461367.5004, "alt_min": -54.2375, "alt_max": 13.7482 }, … ] }
 ```
 

@@ -34,6 +34,16 @@ pub struct Params {
     pub jd2: Option<f64>,
     /// Location as `lat,lng` or `lat,lng,alt`.
     pub loc: Option<String>,
+    /// The historic moment of the transposed endpoints: a date-time with the same offset as
+    /// `dt`, or a Julian Day.
+    pub h_dt: Option<String>,
+    pub h_jd: Option<f64>,
+    /// The historic place of the transposed endpoints, in the same forms as `loc`, `lat`,
+    /// `lng` and `alt`.
+    pub h_loc: Option<String>,
+    pub h_lat: Option<f64>,
+    pub h_lng: Option<f64>,
+    pub h_alt: Option<f64>,
     /// Latitude, longitude (degrees) and altitude (metres); each overrides its part of `loc`.
     pub lat: Option<f64>,
     pub lng: Option<f64>,
@@ -181,16 +191,43 @@ impl Params {
 
     /// The location, if any part of one was given.
     pub fn geo(&self) -> Result<Option<GeoPos>, ApiError> {
-        let mut base = match &self.loc {
-            Some(loc) => Some(loc.parse::<GeoPos>().map_err(|e| ApiError::bad(format!("invalid loc: {e}")))?),
-            None => None,
-        };
-        if self.lat.is_some() || self.lng.is_some() || self.alt.is_some() {
-            let b = base.unwrap_or_default();
-            let geo = GeoPos::new(self.lat.unwrap_or(b.lat), self.lng.unwrap_or(b.lng), self.alt.unwrap_or(b.alt));
-            base = Some(geo.map_err(|e| ApiError::bad(format!("invalid location: {e}")))?);
+        place("loc", self.loc.as_deref(), self.lat, self.lng, self.alt)
+    }
+
+    /// The historic place of the transposed endpoints, if any part of one was given:
+    /// `h_loc`, with `h_lat`, `h_lng` and `h_alt` overriding its parts.
+    pub fn historic_geo(&self) -> Result<Option<GeoPos>, ApiError> {
+        place("h_loc", self.h_loc.as_deref(), self.h_lat, self.h_lng, self.h_alt)
+    }
+
+    /// The historic moment of the transposed endpoints: `h_jd`, else `h_dt` less the offset.
+    pub fn historic_jd(&self) -> Result<JdUt, ApiError> {
+        match (self.h_jd, &self.h_dt) {
+            (Some(jd), _) if jd.is_finite() => Ok(JdUt(jd)),
+            (Some(_), _) => Err(ApiError::bad("invalid h_jd")),
+            (None, Some(dt)) => self.local_to_jd(dt),
+            (None, None) => Err(ApiError::bad("the historic moment is required: h_dt or h_jd")),
         }
-        Ok(base)
+    }
+
+    /// How the historic positions of the transposed endpoints are seen: from the historic
+    /// place (`ps=topo`, the default when one is given) or from the centre of the Earth
+    /// (`ps=geo`, the default without one). Returns the place only in the first case.
+    pub fn historic_view(&self) -> Result<(Perspective, Option<GeoPos>), ApiError> {
+        let place = self.historic_geo()?;
+        let perspective = match (&self.ps, self.topo) {
+            (Some(_), _) | (None, Some(_)) => self.perspective()?,
+            (None, None) if place.is_some() => Perspective::Topocentric,
+            (None, None) => Perspective::Geocentric,
+        };
+        match perspective {
+            Perspective::Geocentric => Ok((perspective, None)),
+            Perspective::Topocentric | Perspective::LocalSpaceHorizon => match place {
+                Some(place) => Ok((Perspective::Topocentric, Some(place))),
+                None => Err(ApiError::bad("ps=topo needs the historic place: h_loc=lat,lng or h_lat and h_lng")),
+            },
+            _ => Err(ApiError::bad("transposed points need an observer on the Earth: ps=geo or ps=topo")),
+        }
     }
 
     /// The location, for endpoints that cannot work without one.
@@ -447,4 +484,20 @@ impl Params {
             Some(other) => return Err(ApiError::bad(format!("unknown prog: {other} (use a, b or ab)"))),
         })
     }
+}
+
+
+/// A place from its `lat,lng[,alt]` text and the separate numbers that override its parts.
+/// `name` is the text parameter's name, for error messages.
+fn place(name: &str, text: Option<&str>, lat: Option<f64>, lng: Option<f64>, alt: Option<f64>) -> Result<Option<GeoPos>, ApiError> {
+    let mut base = match text {
+        Some(loc) => Some(loc.parse::<GeoPos>().map_err(|e| ApiError::bad(format!("invalid {name}: {e}")))?),
+        None => None,
+    };
+    if lat.is_some() || lng.is_some() || alt.is_some() {
+        let b = base.unwrap_or_default();
+        let geo = GeoPos::new(lat.unwrap_or(b.lat), lng.unwrap_or(b.lng), alt.unwrap_or(b.alt));
+        base = Some(geo.map_err(|e| ApiError::bad(format!("invalid location: {e}")))?);
+    }
+    Ok(base)
 }

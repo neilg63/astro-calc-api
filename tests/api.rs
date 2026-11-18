@@ -37,6 +37,11 @@ async fn ok(state: &Arc<AppState>, path: &str) -> Value {
     body
 }
 
+/// Equal but for the last bit or two: serde_json may parse a float one unit off.
+fn close(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 4.0 * f64::EPSILON * a.abs().max(b.abs()).max(1.0)
+}
+
 fn f(v: &Value) -> f64 {
     v.as_f64().unwrap_or_else(|| panic!("not a number: {v}"))
 }
@@ -184,6 +189,24 @@ async fn positions_match_the_core_library() {
             assert!((f(&got[key]) - value).abs() <= 1e-12 * value.abs().max(1.0), "{} {key}", want.body);
         }
     }
+    // Topocentric results carry the chart angles of the moment and place; others do not.
+    for path in ["/positions", "/extended-positions"] {
+        let topo = ok(&s, &format!("{path}?jd={JD}&loc=56.1,-3.6&ps=topo&bodies=su,mo")).await;
+        let want = angles(JD, geo);
+        for (key, value) in [("ascendant", want.ascendant), ("descendant", want.descendant()), ("mc", want.mc), ("ic", want.ic()), ("vertex", want.vertex)] {
+            assert!(close(f(&topo["points"][key]), value), "{path} {key}");
+        }
+        assert!(ok(&s, &format!("{path}?jd={JD}&loc=56.1,-3.6&ps=geo&bodies=su,mo")).await.get("points").is_none());
+        // A place alone makes these endpoints topocentric.
+        assert_eq!(ok(&s, &format!("{path}?jd={JD}&loc=56.1,-3.6&bodies=su,mo")).await["points"], topo["points"]);
+    }
+    for path in ["/position", "/extended-position"] {
+        let one = ok(&s, &format!("{path}?jd={JD}&loc=56.1,-3.6&ps=topo&body=mo")).await;
+        assert!(close(f(&one["points"]["ascendant"]), ascendant(JD, geo)) && one["points"]["mc"].is_number());
+    }
+    assert!(ok(&s, &format!("/positions?jd={JD}&bodies=su,mo")).await.get("points").is_none());
+    assert!(ok(&s, &format!("/extended-positions?jd={JD}&ps=helio&bodies=ea,ma")).await.get("points").is_none());
+
     // The dedicated endpoints give the same combined result, whatever `cs` says.
     let q = format!("jd={JD}&loc=56.1,-3.6&ps=topo&bodies=su,mo");
     assert_eq!(ok(&s, &format!("/extended-positions?{q}")).await["bodies"], all["bodies"]);
@@ -258,24 +281,39 @@ async fn chart_endpoints() {
     let geo = GeoPos::new(56.1, -3.6, 0.0).unwrap();
     let q = format!("jd={JD}&loc=56.1,-3.6");
     let a = angles(JD, geo);
-    assert_eq!(f(&ok(&s, &format!("/ascendant?{q}")).await["ascendant"]), a.ascendant);
+    let v = ok(&s, &format!("/ascendant?{q}")).await;
+    assert!(close(f(&v["ascendant"]), a.ascendant) && close(f(&v["points"]["ascendant"]), a.ascendant));
+    assert!(close(f(&v["points"]["mc"]), a.mc) && close(f(&v["points"]["descendant"]), a.descendant()) && close(f(&v["points"]["vertex"]), a.vertex));
     let v = ok(&s, &format!("/angles?{q}")).await;
     assert_eq!((f(&v["angles"]["mc"]), f(&v["angles"]["vertex"])), (a.mc, a.vertex));
+    // Hourly by default, from one day before the moment to eight days after it.
+    let v = ok(&s, &format!("/ascendant-progress?{q}")).await;
+    let list = v["ascendants"].as_array().unwrap();
+    assert_eq!(list.len(), 9 * 24 + 1);
+    assert!(close(f(&list[0]["jd"]), JD - 1.0) && close(f(&list[216]["jd"]), JD + 8.0));
+    assert!(close(f(&list[24]["jd"]), JD) && close(f(&list[24]["lng"]), a.ascendant) && close(f(&v["points"]["mc"]), a.mc));
+    let v = ok(&s, &format!("/ascendant-progress?{q}&days=2&pdays=0&pd=4")).await;
+    let list = v["ascendants"].as_array().unwrap();
+    assert_eq!(list.len(), 9);
+    assert!(close(f(&list[3]["lng"]), ascendant(JD + 0.75, geo)));
+    for bad in ["pd=0", "days=-1", "days=1000000&pd=1000"] {
+        assert_eq!(get(&s, &format!("/ascendant-progress?{q}&{bad}")).await.0, StatusCode::BAD_REQUEST, "{bad}");
+    }
     let v = ok(&s, &format!("/houses?{q}&hsys=P,U,w")).await;
     let sets = v["sets"].as_array().unwrap();
     assert_eq!(sets.iter().map(|x| x["system"].as_str().unwrap()).collect::<Vec<_>>(), ["P", "U", "W"]);
-    assert_eq!(f(&sets[0]["cusps"][1]), houses(JD, geo, HouseSystem::Placidus).cusps[1]);
+    assert!(close(f(&sets[0]["cusps"][1]), houses(JD, geo, HouseSystem::Placidus).cusps[1]));
     assert_eq!(ok(&s, &format!("/houses?{q}&hsys=all")).await["sets"].as_array().unwrap().len(), HouseSystem::ALL.len());
     assert_eq!(ok(&s, &format!("/houses?{q}")).await["sets"][0]["system"], "W");
 
     let v = ok(&s, &format!("/ayanamsha?jd={JD}&aya=lh,tc")).await;
-    assert_eq!(f(&v["ayanamshas"][0]["value"]), s.eph.ayanamsha(JD, Ayanamsha::Lahiri).unwrap());
+    assert!(close(f(&v["ayanamshas"][0]["value"]), s.eph.ayanamsha(JD, Ayanamsha::Lahiri).unwrap()));
     assert_eq!(v["ayanamshas"][1]["key"], "tc");
     assert!(ok(&s, &format!("/ayanamsha?jd={JD}")).await["ayanamshas"].as_array().unwrap().len() >= 17);
 
     let v = ok(&s, &format!("/rise-set?{q}&bodies=su,mo,hip:65474")).await;
     let sun = s.eph.day_transits(Body::Sun, JD, geo, RiseSetOptions::default()).unwrap();
-    assert_eq!(f(&v["bodies"][0]["rise"]["jd"]), sun.rise.unwrap().value());
+    assert!(close(f(&v["bodies"][0]["rise"]["jd"]), sun.rise.unwrap().value()));
     assert_eq!(v["bodies"].as_array().unwrap().len(), 3);
     let upper = ok(&s, &format!("/rise-set?{q}&bodies=su&mode=0")).await;
     assert!(f(&upper["bodies"][0]["rise"]["jd"]) != sun.rise.unwrap().value());
@@ -297,7 +335,7 @@ async fn chart_endpoints() {
     ] {
         let expected = s.eph.day_transits(Body::Sun, JD, place, opts).unwrap().rise.unwrap().value();
         let v = ok(&s, &format!("/rise-set?{q}&bodies=su&{extra}")).await;
-        assert_eq!(f(&v["bodies"][0]["rise"]["jd"]), expected, "{extra}");
+        assert!(close(f(&v["bodies"][0]["rise"]["jd"]), expected), "{extra}");
     }
     let v = ok(&s, &format!("/rise-set?{q}&bodies=su&twilight=civil&disc=upper")).await;
     assert_eq!((v["options"]["twilight"].as_str(), f(&v["options"]["horizon"]), v["options"]["disc"].as_str()), (Some("civil"), -6.0, Some("upper")));
@@ -314,7 +352,7 @@ async fn chart_endpoints() {
     assert_eq!(keys, ["su", "mo", "me", "ve", "ma", "ju", "sa"]);
     for (i, day) in v["bodies"][1]["days"].as_array().unwrap().iter().enumerate() {
         let d = s.eph.day_transits(Body::Moon, JD + (i as f64 - 1.0), geo, RiseSetOptions::default()).unwrap();
-        assert_eq!(f(&day["day_start"]), d.day_start.value());
+        assert!(close(f(&day["day_start"]), d.day_start.value()));
         assert_eq!(day["rise"].as_f64(), d.rise.map(JdUt::value));
         assert_eq!(day["ic"].as_f64(), d.ic.map(JdUt::value));
         // serde_json may parse a float one unit off in its last bit.
@@ -326,15 +364,70 @@ async fn chart_endpoints() {
     let days = v["bodies"][0]["days"].as_array().unwrap();
     assert_eq!(days.len(), 3);
     let last = s.eph.day_transits(Body::Sun, JD + 2.0, geo, RiseSetOptions::upper_limb()).unwrap();
-    assert_eq!(f(&days[2]["set"]), last.set.unwrap().value());
+    assert!(close(f(&days[2]["set"]), last.set.unwrap().value()));
     assert_eq!(f(&days[1]["day_start"]) - f(&days[0]["day_start"]), 1.0);
     // Near the pole the Sun neither rises nor sets in midwinter: the times are null.
     let v = ok(&s, &format!("/rise-sets?jd={JD}&loc=78.2,15.6&bodies=su&days=1&pdays=0")).await;
     let day = &v["bodies"][0]["days"][0];
     assert!(day["rise"].is_null() && day["set"].is_null() && day["mc"].is_number(), "{day}");
 
+    // Transposed: a body's place at a historic moment, carried onto the sky of the date.
+    let source = JD - 12_345.25;
+    let h_geo = GeoPos::new(13.1, 80.3, 0.0).unwrap();
+    let v = ok(&s, &format!("/transposed-transits?{q}&h_jd={source}&bodies=su,mo&days=2&refraction=off")).await;
+    assert_eq!((f(&v["days"]), f(&v["pdays"]), f(&v["horizon_alt"]), v["ps"].as_str()), (2.0, 0.0, 0.0, Some("geocentric")));
+    assert_eq!((f(&v["date"]["jd"]), f(&v["historic_date"]["jd"]), f(&v["geo"]["lat"])), (JD, source, geo.lat));
+    // Geocentric: no historic place, and no chart angles.
+    assert!(v["historic_geo"].is_null() && v.get("points").is_none() && v.get("historic_points").is_none());
+    let natal = s.eph.calc_positions(&[Body::Sun, Body::Moon], source, GeoPos::default(), CoordSystem::Ecliptic, Perspective::Geocentric).unwrap();
+    let start = local_day_start(JD, geo.lng);
+    for (item, pos) in v["bodies"].as_array().unwrap().iter().zip(&natal) {
+        assert_eq!((item["key"].as_str(), item["source"].as_str()), (Some(format!("tp:{}", pos.body).as_str()), Some(pos.body.to_string().as_str())));
+        assert!(close(f(&item["lng"]), pos.lng) && close(f(&item["lat"]), pos.lat));
+        let want = transposed_point_transit_days(pos, start, geo, 0.0, 2);
+        for (day, d) in item["days"].as_array().unwrap().iter().zip(&want) {
+            assert!(close(f(&day["day_start"]), d.start.value()) && close(f(&day["mc"]), d.mc.value()) && close(f(&day["ic"]), d.ic.value()));
+            assert!(close(f(&day["rise"]), d.rise.unwrap().value()) && close(f(&day["set"]), d.set.unwrap().value()));
+        }
+    }
+    // On the ecliptic and without refraction, the point rises as the ascendant.
+    let v = ok(&s, &format!("/transposed-transits?{q}&h_jd={source}&bodies=mo&refraction=off&nolat=1")).await;
+    let rise = f(&v["bodies"][0]["days"][0]["rise"]);
+    assert!((ascendant(rise, geo) - natal[1].lng).abs() < 1e-6 && f(&v["bodies"][0]["lat"]) == 0.0);
+    // A historic place makes it topocentric and adds the chart angles of both moments.
+    let v = ok(&s, &format!("/transposed-transits?{q}&h_jd={source}&h_loc=13.1,80.3&bodies=mo")).await;
+    assert_eq!((v["ps"].as_str(), f(&v["historic_geo"]["lng"])), (Some("topocentric"), 80.3));
+    assert!(f(&v["horizon_alt"]) < -0.5 && (f(&v["bodies"][0]["lng"]) - natal[1].lng).abs() > 0.01);
+    assert!(close(f(&v["points"]["ascendant"]), ascendant(JD, geo)) && close(f(&v["historic_points"]["ascendant"]), ascendant(source, h_geo)));
+    assert!(v["historic_points"]["mc"].is_number() && v["points"]["vertex"].is_number());
+    // The parts of the historic place can be given one by one, and ps=geo sets it aside.
+    let parts = ok(&s, &format!("/transposed-transits?{q}&h_jd={source}&h_lat=13.1&h_lng=80.3&bodies=mo")).await;
+    assert_eq!(parts["bodies"], v["bodies"]);
+    let set_aside = ok(&s, &format!("/transposed-transits?{q}&h_jd={source}&h_loc=13.1,80.3&bodies=mo&ps=geo")).await;
+    assert!(close(f(&set_aside["bodies"][0]["lng"]), natal[1].lng) && set_aside.get("points").is_none());
+
+    // Positions: every coordinate system at once, as the core gives them.
+    let v = ok(&s, &format!("/transposed-positions?{q}&h_jd={source}&h_loc=13.1,80.3&bodies=su,mo,ma")).await;
+    let bodies = [Body::Sun, Body::Moon, Body::Mars];
+    let want = s.eph.calc_transposed_positions(&bodies, JD, source, geo, h_geo, Perspective::Topocentric).unwrap();
+    assert_eq!((v["ps"].as_str(), f(&v["historic_date"]["jd"]), f(&v["historic_geo"]["lat"])), (Some("topocentric"), source, 13.1));
+    assert!(close(f(&v["points"]["ascendant"]), ascendant(JD, geo)) && close(f(&v["historic_points"]["ascendant"]), ascendant(source, h_geo)));
+    for ((item, p), body) in v["bodies"].as_array().unwrap().iter().zip(&want).zip(bodies) {
+        assert_eq!((item["key"].as_str(), item["source"].as_str()), (Some(format!("tp:{body}").as_str()), Some(body.to_string().as_str())));
+        for (key, value) in [("lng", p.lng), ("lat", p.lat), ("ras", p.ras), ("dcl", p.dcl), ("azi", p.azi), ("alt", p.alt), ("azi_speed", p.azi_speed), ("alt_speed", p.alt_speed), ("dist", p.dist)] {
+            assert!(close(f(&item[key]), value), "{body} {key}");
+        }
+        assert_eq!((f(&item["lng_speed"]), f(&item["ras_speed"]), f(&item["dist_speed"])), (0.0, 0.0, 0.0));
+    }
+    // The default bodies, seen from the centre of the Earth when no historic place is given.
+    let v = ok(&s, &format!("/transposed-positions?{q}&h_dt=1962-03-28T05:25:00")).await;
+    let keys: Vec<_> = v["bodies"].as_array().unwrap().iter().map(|b| b["source"].as_str().unwrap()).collect();
+    assert_eq!(keys, ["su", "mo", "me", "ve", "ma", "ju", "sa"]);
+    assert!(v["ps"].as_str() == Some("geocentric") && v["historic_geo"].is_null() && v.get("points").is_none());
+    assert!(v["historic_date"]["utc"].as_str().unwrap().starts_with("1962-03-28T05:25:00"));
+
     let v = ok(&s, &format!("/pheno?jd={JD}&bodies=ve,ce")).await;
-    assert_eq!(f(&v["bodies"][0]["magnitude"]), s.eph.phenomena(Body::Venus, JD).unwrap().magnitude);
+    assert!(close(f(&v["bodies"][0]["magnitude"]), s.eph.phenomena(Body::Venus, JD).unwrap().magnitude));
 }
 
 #[tokio::test]
@@ -356,7 +449,7 @@ async fn events_and_series() {
     let v = ok(&s, &format!("/moon-phases?jd={JD}&num=6")).await;
     let phases = v["phases"].as_array().unwrap();
     assert_eq!(phases.len(), 6);
-    assert_eq!(f(&phases[0]["jd"]), s.eph.next_moon_phase(JD).unwrap().jd.value());
+    assert!(close(f(&phases[0]["jd"]), s.eph.next_moon_phase(JD).unwrap().jd.value()));
     assert!(phases.windows(2).all(|w| f(&w[1]["jd"]) - f(&w[0]["jd"]) > 6.0));
     let month = ok(&s, &format!("/moon-phases?jd={JD}&days=30")).await;
     assert!((3..=5).contains(&month["phases"].as_array().unwrap().len()));
@@ -446,6 +539,13 @@ async fn information_and_errors() {
         ("/progress?days=1000000&pd=24", StatusCode::BAD_REQUEST),
         ("/aspects?aspects=90:x", StatusCode::BAD_REQUEST),
         ("/rise-sets", StatusCode::BAD_REQUEST),
+        ("/transposed-transits?loc=10,10", StatusCode::BAD_REQUEST),
+        ("/transposed-transits?h_jd=2451545", StatusCode::BAD_REQUEST),
+        ("/transposed-transits?loc=10,10&h_jd=2451545&h_loc=abc", StatusCode::BAD_REQUEST),
+        ("/transposed-positions?loc=10,10", StatusCode::BAD_REQUEST),
+        ("/transposed-positions?h_jd=2451545", StatusCode::BAD_REQUEST),
+        ("/transposed-positions?loc=10,10&h_jd=2451545&ps=topo", StatusCode::BAD_REQUEST),
+        ("/transposed-positions?loc=10,10&h_jd=2451545&ps=helio", StatusCode::BAD_REQUEST),
         ("/rise-sets?loc=10,10&days=1.5", StatusCode::BAD_REQUEST),
         ("/rise-sets?loc=10,10&pdays=-1", StatusCode::BAD_REQUEST),
         ("/rise-sets?loc=10,10&days=0&pdays=0", StatusCode::BAD_REQUEST),
@@ -507,10 +607,16 @@ async fn bulk_charts_echo_refs_and_tags() {
     for (bulk, one) in chart["bodies"].as_array().unwrap().iter().zip(single["bodies"].as_array().unwrap()) {
         assert!((f(&bulk["lng"]) - f(&one["lng"])).abs() < 1e-9);
     }
-    // Early years are read as dates; here they are merely outside the test ephemeris.
+    // Early years are read as dates. Whether this one can be calculated depends on the
+    // planetary file installed: a long one covers it, the DE440 files do not.
     let (status, early) = get(&s, "/longitude?body=su&dt=0900-07-06T09:24:37").await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{early}");
-    assert!(early["error"].as_str().unwrap().starts_with("0900-07-06"), "{early}");
+    if s.eph.date_range().is_some_and(|range| range.contains(2_049_964.89)) {
+        assert_eq!(status, StatusCode::OK, "{early}");
+        assert!(early["date"]["utc"].as_str().unwrap().starts_with("0900-07-06"), "{early}");
+    } else {
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{early}");
+        assert!(early["error"].as_str().unwrap().starts_with("0900-07-06"), "{early}");
+    }
     // The wrapped form and the tag filter.
     let (_, women) = post(&s, "/bulk/charts?bodies=su&tags=sex:f,group:0", serde_json::json!({ "items": records })).await;
     let list = women["charts"].as_array().unwrap();

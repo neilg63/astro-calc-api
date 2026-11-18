@@ -145,8 +145,8 @@ pub async fn index(State(app): App) -> Json<Value> {
         "ephemeris_range": range,
         "station_table": app.stations.is_some(),
         "endpoints": [
-            "/bodies", "/stars", "/longitude", "/longitudes", "/position", "/positions", "/extended-position", "/extended-positions", "/progress", "/ascendant", "/angles", "/houses",
-            "/ayanamsha", "/rise-set", "/rise-sets", "/stations", "/moon-phases", "/indian-day", "/pheno", "/aspects"
+            "/bodies", "/stars", "/longitude", "/longitudes", "/position", "/positions", "/extended-position", "/extended-positions", "/progress", "/ascendant", "/ascendant-progress", "/angles", "/houses",
+            "/ayanamsha", "/rise-set", "/rise-sets", "/transposed-positions", "/transposed-transits", "/stations", "/moon-phases", "/indian-day", "/pheno", "/aspects"
         ],
     }))
 }
@@ -173,6 +173,15 @@ pub async fn stars() -> Json<Value> {
     Json(json!({ "stars": list }))
 }
 
+/// In topocentric mode (an observer at a place on the Earth: `topo` or `local`), adds
+/// `points`: the ascendant, MC and the other chart angles of the moment and place. They are
+/// tropical longitudes, whatever `sid` says.
+fn add_points(v: &mut Value, jd: JdUt, geo: GeoPos, ps: Perspective) {
+    if ps.needs_location() {
+        v["points"] = angles_json(&astro_calc_core::angles(jd, geo));
+    }
+}
+
 /// `/position`: one body.
 pub async fn position(State(app): App, Q(q): Q) -> Reply {
     let jd = q.jd()?;
@@ -184,10 +193,12 @@ pub async fn position(State(app): App, Q(q): Q) -> Reply {
     } else {
         body_json(&app.eph.calc_position(body, jd, geo, cs, ps)?, cs, ps, sid)
     };
-    Ok(Json(json!({
+    let mut v = json!({
         "date": moment(jd.value()), "geo": geo_json(geo), "cs": cs_label(&q, cs, ps), "ps": ps_key(ps),
         "sidereal": sid.is_some(), "ayanamshas": ayanamshas, "body": item,
-    })))
+    });
+    add_points(&mut v, jd, geo, ps);
+    Ok(Json(v))
 }
 
 /// `/positions`: several bodies at one moment.
@@ -201,11 +212,13 @@ pub async fn positions(State(app): App, Q(q): Q) -> Reply {
     } else {
         app.eph.calc_positions(&bodies, jd, geo, cs, ps)?.iter().map(|p| body_json(p, cs, ps, sid)).collect()
     };
-    Ok(Json(json!({
+    let mut v = json!({
         "date": moment(jd.value()), "geo": geo_json(geo), "cs": cs_label(&q, cs, ps), "ps": ps_key(ps),
         "sidereal": sid.is_some(), "ayanamshas": ayanamshas,
         "bodies": list,
-    })))
+    });
+    add_points(&mut v, jd, geo, ps);
+    Ok(Json(v))
 }
 
 /// The ayanamsha to subtract in the longitude endpoints: the first one named in `aya`.
@@ -324,10 +337,45 @@ pub async fn progress(State(app): App, Q(q): Q) -> Reply {
     })))
 }
 
-/// `/ascendant`: the ascendant alone.
+/// `/ascendant`: the chart angles of the moment and place as `points`, the ascendant first.
+/// The separate `ascendant` field repeats `points.ascendant` and is deprecated: it is kept
+/// for older clients.
 pub async fn ascendant(Q(q): Q) -> Reply {
     let (jd, geo) = (q.jd()?, q.require_geo()?);
-    Ok(Json(json!({ "date": moment(jd.value()), "geo": geo_json(geo), "ascendant": astro_calc_core::ascendant(jd, geo) })))
+    let points = astro_calc_core::angles(jd, geo);
+    Ok(Json(json!({ "date": moment(jd.value()), "geo": geo_json(geo), "ascendant": points.ascendant, "points": angles_json(&points) })))
+}
+
+/// `/ascendant-progress`: the ascendant at even steps, from `pdays` days before the moment
+/// (default 1) to `days` days after it (default 8), `pd` samples per day (default 24). The
+/// moment itself is a sample whenever `pdays × pd` is a whole number. `points` are the chart
+/// angles of the moment.
+pub async fn ascendant_progress(Q(q): Q) -> Reply {
+    let (jd, geo) = (q.jd()?, q.require_geo()?);
+    let span = |name: &str, value: Option<f64>, default: f64| match value.unwrap_or(default) {
+        d if d.is_finite() && d >= 0.0 => Ok(d),
+        _ => Err(ApiError::bad(format!("{name} must not be negative"))),
+    };
+    let (days, pdays, per) = (span("days", q.days, 8.0)?, span("pdays", q.pdays, 1.0)?, q.pd.unwrap_or(24.0));
+    if !(per.is_finite() && per > 0.0) {
+        return Err(ApiError::bad("pd must be positive: the number of samples per day"));
+    }
+    // The small allowance keeps the last sample when the count is whole but for rounding.
+    let steps = ((days + pdays) * per + 1e-9).floor();
+    if steps + 1.0 > MAX_SAMPLES {
+        return Err(ApiError::bad(format!("too many samples; the limit is {MAX_SAMPLES} per request")));
+    }
+    let start = jd.value() - pdays;
+    let ascendants: Vec<Value> = (0..=steps as u64)
+        .map(|i| {
+            let at = start + i as f64 / per;
+            json!({ "jd": at, "lng": astro_calc_core::ascendant(at, geo) })
+        })
+        .collect();
+    Ok(Json(json!({
+        "date": moment(jd.value()), "geo": geo_json(geo), "days": days, "pdays": pdays, "pd": per,
+        "points": angles_json(&astro_calc_core::angles(jd, geo)), "ascendants": ascendants,
+    })))
 }
 
 fn angles_json(a: &astro_calc_core::Angles) -> Value {
@@ -428,6 +476,109 @@ pub async fn rise_sets(State(app): App, Q(q): Q) -> Reply {
     Ok(Json(json!({
         "date": moment(jd.value()), "geo": geo_json(geo), "days": days, "pdays": pdays, "options": rise_set_json(&opts), "bodies": list,
     })))
+}
+
+/// The bodies transposed by default: the Sun, the Moon and the five classical planets.
+const TRANSPOSED_BODIES: [Body; 7] = [Body::Sun, Body::Moon, Body::Mercury, Body::Venus, Body::Mars, Body::Jupiter, Body::Saturn];
+
+/// What the two transposed endpoints share: the target moment and place, the historic
+/// moment and how it is seen, and the opening fields of the response.
+struct Transposed {
+    jd: JdUt,
+    geo: GeoPos,
+    h_jd: JdUt,
+    h_geo: Option<GeoPos>,
+    ps: Perspective,
+    bodies: Vec<Body>,
+}
+
+impl Transposed {
+    fn new(q: &Params) -> Result<Self, ApiError> {
+        let (ps, h_geo) = q.historic_view()?;
+        Ok(Self { jd: q.jd()?, geo: q.require_geo()?, h_jd: q.historic_jd()?, h_geo, ps, bodies: q.bodies(&TRANSPOSED_BODIES)? })
+    }
+
+    /// `date`, `geo`, `historic_date`, `historic_geo` and `ps`, and in topocentric mode the
+    /// chart angles of both moments as `points` and `historic_points`.
+    fn head(&self) -> Value {
+        let mut v = json!({
+            "date": moment(self.jd.value()), "geo": geo_json(self.geo),
+            "historic_date": moment(self.h_jd.value()), "historic_geo": self.h_geo.map(geo_json), "ps": ps_key(self.ps),
+        });
+        if let Some(h_geo) = self.h_geo {
+            v["points"] = angles_json(&astro_calc_core::angles(self.jd, self.geo));
+            v["historic_points"] = angles_json(&astro_calc_core::angles(self.h_jd, h_geo));
+        }
+        v
+    }
+}
+
+/// `/transposed-positions`: where each body stood at the historic moment (`h_dt` or `h_jd`,
+/// seen from `h_loc` if given, else from the centre of the Earth), held at that ecliptic
+/// longitude and latitude and placed in the sky of the date and place asked about, in all
+/// three coordinate systems. Each body is keyed `tp:` and its source, as `tp:su`.
+pub async fn transposed_positions(State(app): App, Q(q): Q) -> Reply {
+    let t = Transposed::new(&q)?;
+    let list: Vec<Value> = app
+        .eph
+        .calc_transposed_positions(&t.bodies, t.jd, t.h_jd, t.geo, t.h_geo.unwrap_or_default(), t.ps)?
+        .iter()
+        .map(|p| {
+            let mut v = ext_json(p, None);
+            v["source"] = json!(p.body.source().map(|source| source.to_string()));
+            v
+        })
+        .collect();
+    let mut v = t.head();
+    v["bodies"] = json!(list);
+    Ok(Json(v))
+}
+
+/// `/transposed-transits`: the same fixed points as `/transposed-positions`, with the rise,
+/// upper transit, set and lower transit of each and its lowest and highest altitude, for
+/// each local day as in `/rise-sets`. `days` defaults to 1 and `pdays` to 0.
+///
+/// A fixed point has no disc and no parallax, so of the rise/set options only the horizon,
+/// refraction, dip and `nolat` apply.
+pub async fn transposed_transits(State(app): App, Q(q): Q) -> Reply {
+    let (t, opts) = (Transposed::new(&q)?, q.rise_set_options()?);
+    let whole = |name: &str, v: Option<f64>, default: f64| match v.unwrap_or(default) {
+        n if n.is_finite() && n >= 0.0 && n.fract() == 0.0 => Ok(n),
+        n => Err(ApiError::bad(format!("{name} must be a whole number of days, not {n}"))),
+    };
+    let (days, pdays) = (whole("days", q.days, 1.0)?, whole("pdays", q.pdays, 0.0)?);
+    if days + pdays == 0.0 {
+        return Err(ApiError::bad("days and pdays are both 0: there are no days to show"));
+    }
+    if (days + pdays) * t.bodies.len() as f64 > MAX_DAYS {
+        return Err(ApiError::bad(format!("too many days; the limit is {MAX_DAYS} (bodies × days) per request")));
+    }
+    let positions = app.eph.transposed_sources(&t.bodies, t.h_jd, t.h_geo)?;
+    let horizon = opts.point_altitude(t.geo.alt);
+    let first = astro_calc_core::local_day_start(t.jd.value(), t.geo.lng) - pdays;
+    let list: Vec<Value> = positions
+        .iter()
+        .map(|pos| {
+            let pos = astro_calc_core::BodyPos { lat: if opts.ignore_latitude { 0.0 } else { pos.lat }, ..*pos };
+            let items: Vec<Value> = astro_calc_core::transposed_point_transit_days(&pos, first, t.geo, horizon, (days + pdays) as u32)
+                .iter()
+                .map(|d| {
+                    let time = |e: Option<JdUt>| e.map(JdUt::value);
+                    json!({
+                        "day_start": d.start.value(), "rise": time(d.rise), "mc": d.mc.value(), "set": time(d.set), "ic": d.ic.value(),
+                        "alt_min": d.min_alt, "alt_max": d.max_alt,
+                    })
+                })
+                .collect();
+            json!({ "key": Body::transposed(pos.body).to_string(), "source": pos.body.to_string(), "lng": pos.lng, "lat": pos.lat, "days": items })
+        })
+        .collect();
+    let mut v = t.head();
+    v["days"] = json!(days);
+    v["pdays"] = json!(pdays);
+    v["horizon_alt"] = json!(horizon);
+    v["bodies"] = json!(list);
+    Ok(Json(v))
 }
 
 /// The rise/set options in force, so a client can see what its parameters resolved to.
