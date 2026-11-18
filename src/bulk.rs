@@ -164,7 +164,7 @@ fn criteria(q: &Params) -> Result<AspectCriteria, ApiError> {
 }
 
 fn sidereal(q: &Params) -> Result<Option<astro_calc_core::Ayanamsha>, ApiError> {
-    if q.sid != Some(1) {
+    if q.sid != Some(true) {
         return Ok(None);
     }
     q.ayanamshas()?.first().copied().map(Some).ok_or_else(|| ApiError::bad("sid=1 needs an ayanamsha: aya=key"))

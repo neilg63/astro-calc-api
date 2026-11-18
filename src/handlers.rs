@@ -80,6 +80,32 @@ fn ext_json(p: &BodyPosExt, sidereal: Option<f64>) -> Value {
     })
 }
 
+/// Positions in every coordinate system the perspective allows. An observer on the Earth
+/// gets all three. From any other centre there is no horizon, so the ecliptic and
+/// equatorial angles are given and `azi`, `alt` and their speeds are null.
+fn ext_list(app: &AppState, bodies: &[Body], jd: JdUt, geo: GeoPos, ps: Perspective, sidereal: Option<f64>) -> Result<Vec<Value>, ApiError> {
+    if ps.is_earth_based() {
+        return Ok(app.eph.calc_positions_ext(bodies, jd, geo, ps)?.iter().map(|p| ext_json(p, sidereal)).collect());
+    }
+    let ecliptic = app.eph.calc_positions(bodies, jd, geo, CoordSystem::Ecliptic, ps)?;
+    let equatorial = app.eph.calc_positions(bodies, jd, geo, CoordSystem::Equatorial, ps)?;
+    let none = Value::Null;
+    Ok(ecliptic
+        .iter()
+        .zip(&equatorial)
+        .map(|(ecl, equ)| {
+            json!({
+                "key": ecl.body.to_string(),
+                "lng": sidereal.map_or(ecl.lng, |aya| to_sidereal(ecl.lng, aya)), "lat": ecl.lat,
+                "ras": equ.lng, "dcl": equ.lat, "azi": none, "alt": none,
+                "lng_speed": ecl.lng_speed, "lat_speed": ecl.lat_speed, "ras_speed": equ.lng_speed, "dcl_speed": equ.lat_speed,
+                "azi_speed": none, "alt_speed": none,
+                "dist": ecl.dist, "dist_speed": ecl.dist_speed,
+            })
+        })
+        .collect())
+}
+
 /// The label for the coordinate system in a response.
 fn cs_label(q: &Params, cs: CoordSystem, ps: Perspective) -> &'static str {
     if q.all_systems() { "all" } else { cs_key(cs, ps) }
@@ -98,7 +124,7 @@ fn ayanamsha_values(app: &AppState, q: &Params, jd: JdUt, cs: CoordSystem) -> Re
     let ayas = q.ayanamshas()?;
     let values = app.eph.ayanamshas(jd, &ayas)?;
     let list: Vec<Value> = ayas.iter().zip(&values).map(|(a, v)| json!({ "key": a.key(), "name": a.name(), "value": v })).collect();
-    let applied = if q.sid == Some(1) && (cs == CoordSystem::Ecliptic || q.all_systems()) {
+    let applied = if q.sid == Some(true) && (cs == CoordSystem::Ecliptic || q.all_systems()) {
         Some(*values.first().ok_or_else(|| ApiError::bad("sid=1 needs an ayanamsha: aya=key"))?)
     } else {
         None
@@ -154,7 +180,7 @@ pub async fn position(State(app): App, Q(q): Q) -> Reply {
     let body = *q.body_list(ps, &[])?.first().ok_or_else(|| ApiError::bad("a body is required: body=key"))?;
     let (ayanamshas, sid) = ayanamsha_values(&app, &q, jd, cs)?;
     let item = if q.all_systems() {
-        ext_json(&app.eph.calc_position_ext(body, jd, geo, ps)?, sid)
+        ext_list(&app, &[body], jd, geo, ps, sid)?.remove(0)
     } else {
         body_json(&app.eph.calc_position(body, jd, geo, cs, ps)?, cs, ps, sid)
     };
@@ -171,7 +197,7 @@ pub async fn positions(State(app): App, Q(q): Q) -> Reply {
     let bodies = q.body_list(ps, &Body::DEFAULT_BODIES)?;
     let (ayanamshas, sid) = ayanamsha_values(&app, &q, jd, cs)?;
     let list: Vec<Value> = if q.all_systems() {
-        app.eph.calc_positions_ext(&bodies, jd, geo, ps)?.iter().map(|p| ext_json(p, sid)).collect()
+        ext_list(&app, &bodies, jd, geo, ps, sid)?
     } else {
         app.eph.calc_positions(&bodies, jd, geo, cs, ps)?.iter().map(|p| body_json(p, cs, ps, sid)).collect()
     };
@@ -223,7 +249,8 @@ pub async fn longitudes(State(app): App, Q(q): Q) -> Reply {
 }
 
 /// `/extended-position`: one body in all three coordinate systems at once (ecliptic,
-/// equatorial and horizontal), whatever `cs` says. Needs a place.
+/// equatorial and horizontal), whatever `cs` says. An observer on the Earth needs a place;
+/// from any other centre the horizontal angles are null.
 pub async fn extended_position(app: App, Q(mut q): Q) -> Reply {
     q.cs = Some("all".into());
     position(app, Q(q)).await

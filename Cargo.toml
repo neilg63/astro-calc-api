@@ -16,6 +16,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
 dotenvy = "0.15.7"
+is-truthy = "0.1.2"
 
 [dev-dependencies]
 http-body-util = "0.1"

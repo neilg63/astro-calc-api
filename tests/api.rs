@@ -194,6 +194,26 @@ async fn positions_match_the_core_library() {
     let defaults = ok(&s, &format!("/extended-positions?jd={JD}&loc=56.1,-3.6")).await;
     assert_eq!((defaults["ps"].as_str(), defaults["bodies"].as_array().unwrap().len()), (Some("topocentric"), Body::DEFAULT_BODIES.len()));
 
+    // Away from the Earth there is no horizon: ecliptic and equatorial only, no place needed.
+    let helio = ok(&s, &format!("/extended-positions?jd={JD}&ps=helio&bodies=ea,ma")).await;
+    let ecl = ok(&s, &format!("/positions?jd={JD}&ps=helio&bodies=ea,ma")).await;
+    let equ = ok(&s, &format!("/positions?jd={JD}&ps=helio&bodies=ea,ma&cs=equ")).await;
+    assert_eq!((helio["cs"].as_str(), helio["ps"].as_str()), (Some("all"), Some("heliocentric")));
+    for (i, body) in helio["bodies"].as_array().unwrap().iter().enumerate() {
+        assert_eq!(body.as_object().unwrap().len(), 15);
+        for key in ["lng", "lat", "lng_speed", "lat_speed", "dist", "dist_speed"] {
+            assert_eq!(body[key], ecl["bodies"][i][key], "{key}");
+        }
+        for key in ["ras", "dcl", "ras_speed", "dcl_speed"] {
+            assert_eq!(body[key], equ["bodies"][i][key], "{key}");
+        }
+        for key in ["azi", "alt", "azi_speed", "alt_speed"] {
+            assert!(body[key].is_null(), "{key}");
+        }
+    }
+    let jovi = ok(&s, &format!("/extended-position?jd={JD}&ps=jovi&body=sa")).await;
+    assert!(jovi["body"]["ras"].is_number() && jovi["body"]["azi"].is_null());
+
     let one = ok(&s, &format!("/position?jd={JD}&loc=56.1,-3.6&cs=all&body=ve&aya=lh&sid=1")).await;
     let venus = s.eph.calc_position_ext(Body::Venus, JD, geo, Perspective::Topocentric).unwrap();
     assert!((f(&one["body"]["ras"]) - venus.ras).abs() < 1e-9);
@@ -206,6 +226,30 @@ async fn positions_match_the_core_library() {
     let aya = f(&sid["ayanamshas"][0]["value"]);
     assert!((f(&one["body"]["lng"]) - aya - f(&sid["body"]["lng"])).rem_euclid(360.0) < 1e-9);
     assert_eq!(sid["sidereal"], true);
+
+    // On/off parameters: 1, true and on are on; 0, false and off are off; anything else is ignored.
+    for (value, on) in [("1", true), ("true", true), ("TRUE", true), ("0", false), ("false", false), ("FALSE", false), ("on", true), ("Off", false), ("xyz", false), ("2", false), ("", false)] {
+        let v = ok(&s, &format!("/position?jd={JD}&body=ve&aya=lh&sid={value}")).await;
+        assert_eq!(v["sidereal"], on, "sid={value}");
+    }
+    // An unreadable value leaves the default in place: topocentric when a place is given.
+    for (value, ps) in [("0", "geocentric"), ("false", "geocentric"), ("true", "topocentric"), ("xyz", "topocentric")] {
+        assert_eq!(ok(&s, &format!("/positions?jd={JD}&loc=56.1,-3.6&topo={value}")).await["ps"], ps, "topo={value}");
+    }
+    assert_eq!(ok(&s, &format!("/rise-set?jd={JD}&loc=10,10&dip=2")).await["options"]["dip"], false);
+
+    // Coordinate systems by name or number, under `cs` or its older name `eq`.
+    for (name, keys) in [("ecliptic", ["0", "ecl", "ecliptic"]), ("equatorial", ["1", "equ", "Equatorial"]), ("horizontal", ["2", "hor", "horizontal"])] {
+        let want = ok(&s, &format!("/positions?jd={JD}&loc=56.1,-3.6&bodies=mo&cs={name}")).await;
+        for key in keys {
+            for param in ["cs", "eq"] {
+                let got = ok(&s, &format!("/positions?jd={JD}&loc=56.1,-3.6&bodies=mo&{param}={key}")).await;
+                assert_eq!(got["bodies"], want["bodies"], "{param}={key}");
+            }
+        }
+    }
+    let both = ok(&s, &format!("/positions?jd={JD}&loc=56.1,-3.6&bodies=mo&cs=hor&eq=1")).await;
+    assert!(both["bodies"][0]["azi"].is_number(), "cs takes precedence over eq");
 }
 
 #[tokio::test]
@@ -369,6 +413,7 @@ async fn information_and_errors() {
         ("/positions?dt=not-a-date", StatusCode::BAD_REQUEST),
         ("/positions?jd=abc", StatusCode::BAD_REQUEST),
         ("/positions?cs=galactic", StatusCode::BAD_REQUEST),
+        ("/positions?eq=3", StatusCode::BAD_REQUEST),
         ("/positions?ps=topo", StatusCode::BAD_REQUEST),
         ("/positions?bodies=as,su", StatusCode::BAD_REQUEST),
         ("/longitude", StatusCode::BAD_REQUEST),
@@ -379,8 +424,6 @@ async fn information_and_errors() {
         ("/positions?cs=all", StatusCode::BAD_REQUEST),
         ("/extended-positions", StatusCode::BAD_REQUEST),
         ("/extended-position?loc=10,10", StatusCode::BAD_REQUEST),
-        ("/extended-positions?loc=10,10&ps=jovi", StatusCode::BAD_REQUEST),
-        ("/positions?cs=all&ps=helio&loc=10,10", StatusCode::BAD_REQUEST),
         ("/progress?cs=all&days=3&loc=10,10", StatusCode::BAD_REQUEST),
         ("/positions?ps=local", StatusCode::BAD_REQUEST),
         ("/positions?ps=martian", StatusCode::BAD_REQUEST),
@@ -397,7 +440,6 @@ async fn information_and_errors() {
         ("/rise-set?loc=10,10&mode=9", StatusCode::BAD_REQUEST),
         ("/rise-set?loc=10,10&disc=middle", StatusCode::BAD_REQUEST),
         ("/rise-set?loc=10,10&twilight=dusk", StatusCode::BAD_REQUEST),
-        ("/rise-set?loc=10,10&dip=2", StatusCode::BAD_REQUEST),
         ("/rise-set?loc=10,10&horizon=95", StatusCode::BAD_REQUEST),
         ("/rise-set?loc=10,10&refraction=maybe", StatusCode::BAD_REQUEST),
         ("/progress?bodies=su", StatusCode::BAD_REQUEST),

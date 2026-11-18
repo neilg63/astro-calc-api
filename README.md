@@ -69,10 +69,10 @@ rise and set times and the Indian day.
 |---|---|
 | `bodies` | Comma-separated body keys, e.g. `su,mo,ve,ma`, and the set names `default` and `basic`. See `/bodies`; stars are `hip:NUMBER`. |
 | `body` | A single body key. |
-| `cs` | Coordinate system: `ecliptic`/`ecl` (default), `equatorial`/`equ`, `horizontal`/`hor`, or `all` for the three together. |
+| `cs` | Coordinate system: `ecliptic`/`ecl`/`0` (default), `equatorial`/`equ`/`1`, `horizontal`/`hor`/`2`, or `all` for the three together. `eq` is an older name for the same parameter. |
 | `ps` | Perspective: where the observer is; see the table below. For the longitude and position endpoints the default is `topo` when a place is given and `geo` when not; elsewhere it is `geo`. |
 | `aya` | Ayanamsha keys, comma-separated (`lh`, `kr`, `tc`, ...), or `all`. |
-| `sid` | `1` subtracts the first ayanamsha from ecliptic longitudes. |
+| `sid` | `1` or `true` subtracts the first ayanamsha from ecliptic longitudes. |
 | `hsys` | House system letters, comma-separated (`P,K,W`), or `all`. Default `W`. |
 | `num`, `before` | How many items to return, and how many preceding the date. |
 | `pd` | Samples per day (or per year with `years`) in `/progress`. Default 1. |
@@ -149,8 +149,16 @@ object shows what the parameters resolved to.
 | 6 | upper | no | yes |
 | 7 | upper | yes | yes |
 
-The older `topo=1`, `eq=1` and `eq=3` are accepted as aliases for `ps=topo`, `cs=equ` and
-`cs=hor`.
+The older names are still accepted: `topo=1` for `ps=topo`, and `eq` for `cs` with the same
+values (`eq=0`, `eq=1` and `eq=2` for ecliptic, equatorial and horizontal). `cs` wins if both
+are given.
+
+### On/off parameters
+
+`sid`, `fixed`, `dip`, `geoc`, `nolat`, `hindu` and `topo` are switches. `1`, `true` and `on`
+turn one on; `0`, `false` and `off` turn it off, in any letter case (`sid=1`, `sid=true` and `sid=TRUE`
+are the same). Any other value is ignored, as if the parameter had been left out, so its
+default applies.
 
 In responses the two angles of a position are named after the coordinate system:
 
@@ -162,8 +170,9 @@ In responses the two angles of a position are named after the coordinate system:
 | `all` | all six | all six |
 
 `/extended-position` and `/extended-positions` are the same as `/position` and `/positions`
-with `cs=all`. `dist` and `dist_speed` (AU) are the same in every system. `cs=all` needs a place and an
-observer on the Earth, because it includes the horizon; it is not available in `/progress`.
+with `cs=all`. `dist` and `dist_speed` (AU) are the same in every system. For an observer on the Earth (`geo`, `topo` or `local`) `cs=all` needs a place, because it includes the
+horizon. From any other centre (`helio`, `seleno` and so on) there is no horizon: no place is needed and
+`azi`, `alt` and their speeds are `null`. `cs=all` is not available in `/progress`.
 
 ## Endpoints
 

@@ -38,6 +38,7 @@ dependencies = [
  "chrono",
  "dotenvy",
  "http-body-util",
+ "is-truthy",
  "julian_day_converter",
  "serde",
  "serde_json",
@@ -395,6 +396,15 @@ checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
  "hashbrown",
+]
+
+[[package]]
+name = "is-truthy"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c201dc134cbdbb0c53814b2508185ea1396099765d8c52f104c91e10d6c6fc63"
+dependencies = [
+ "simple-string-patterns",
 ]
 
 [[package]]
@@ -928,7 +938,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "astro-calc-core"
-version = "0.2.0"

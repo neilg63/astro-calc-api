@@ -5,7 +5,10 @@ use axum::extract::{FromRequestParts, Query};
 use axum::http::request::Parts;
 use chrono::Utc;
 use julian_day_converter::unix_millis_to_julian_day;
-use serde::Deserialize;
+use std::sync::LazyLock;
+
+use is_truthy::TruthyRuleSet;
+use serde::{Deserialize, Deserializer};
 
 use crate::error::ApiError;
 
@@ -39,16 +42,17 @@ pub struct Params {
     pub bodies: Option<String>,
     /// A single body key.
     pub body: Option<String>,
-    /// Coordinate system: `ecliptic`/`ecl`, `equatorial`/`equ`, `horizontal`/`hor`, or `all`
-    /// for the three together.
+    /// Coordinate system: `ecliptic`/`ecl`/`0`, `equatorial`/`equ`/`1`, `horizontal`/`hor`/`2`,
+    /// or `all` for the three together.
     pub cs: Option<String>,
     /// Perspective: `geo`, `topo`, `helio`, `seleno`, `hermeo`, `cythero`, `areo`, `jovi`,
     /// `crono`, `bary` or `local`, or the full names.
     pub ps: Option<String>,
     /// Ayanamsha keys, comma-separated, or `all`.
     pub aya: Option<String>,
-    /// `1` to subtract the first ayanamsha from ecliptic longitudes.
-    pub sid: Option<u8>,
+    /// `1` or `true` to subtract the first ayanamsha from ecliptic longitudes.
+    #[serde(default, deserialize_with = "flag")]
+    pub sid: Option<bool>,
     /// Span in days, or in years.
     pub days: Option<f64>,
     pub years: Option<f64>,
@@ -68,19 +72,24 @@ pub struct Params {
     pub pressure: Option<f64>,
     pub temp: Option<f64>,
     /// Rise/set: `1` for a fixed mean radius of the Sun and Moon.
-    pub fixed: Option<u8>,
+    #[serde(default, deserialize_with = "flag")]
+    pub fixed: Option<bool>,
     /// Rise/set: apparent altitude of the horizon in degrees.
     pub horizon: Option<f64>,
     /// Rise/set: `civil`, `nautical` or `astronomical` twilight instead of the horizon.
     pub twilight: Option<String>,
     /// Rise/set: `1` to lower the horizon by the dip for the observer's altitude.
-    pub dip: Option<u8>,
+    #[serde(default, deserialize_with = "flag")]
+    pub dip: Option<bool>,
     /// Rise/set: `1` to use geocentric positions (no parallax).
-    pub geoc: Option<u8>,
+    #[serde(default, deserialize_with = "flag")]
+    pub geoc: Option<bool>,
     /// Rise/set: `1` to ignore the body's ecliptic latitude.
-    pub nolat: Option<u8>,
+    #[serde(default, deserialize_with = "flag")]
+    pub nolat: Option<bool>,
     /// Rise/set: `1` for the Hindu rising preset (centre, no refraction, geocentric, no latitude).
-    pub hindu: Option<u8>,
+    #[serde(default, deserialize_with = "flag")]
+    pub hindu: Option<bool>,
     /// How many items to return, and how many before the date.
     pub num: Option<u32>,
     pub before: Option<u8>,
@@ -95,9 +104,19 @@ pub struct Params {
     /// Bulk aspect searches: which charts are secondary-progressed to the date given by
     /// `dt` or `jd` (default now): `a`, `b` or `ab`.
     pub prog: Option<String>,
-    /// Legacy aliases: `topo=1` for `ps=topo`; `eq=1` for `cs=equ`, `eq=3` for `cs=hor`.
-    pub topo: Option<u8>,
-    pub eq: Option<u8>,
+    /// Older name for `ps=topo`.
+    #[serde(default, deserialize_with = "flag")]
+    pub topo: Option<bool>,
+    /// Older name for `cs`, with the same values; `cs` wins if both are given.
+    pub eq: Option<String>,
+}
+
+/// An on/off parameter: `1`, `true` or `on` is on, `0`, `false` or `off` is off, in any
+/// letter case.
+/// Anything else, including an empty value, counts as absent, so the default applies.
+fn flag<'de, D: Deserializer<'de>>(de: D) -> Result<Option<bool>, D::Error> {
+    static RULES: LazyLock<TruthyRuleSet> = LazyLock::new(|| TruthyRuleSet::new().add_true("on").add_false("off").use_defaults());
+    Ok(Option::<String>::deserialize(de)?.and_then(|text| RULES.parse(&text)))
 }
 
 /// Extracts [`Params`], turning a malformed query string into a JSON error.
@@ -180,27 +199,26 @@ impl Params {
     }
 
     /// Whether all three coordinate systems were asked for together: `cs=all` (or `ext`).
+    /// The coordinate system key in lower case: `cs`, or its older name `eq`.
+    fn cs_key(&self) -> Option<String> {
+        self.cs.as_deref().or(self.eq.as_deref()).map(|key| key.trim().to_ascii_lowercase())
+    }
+
     pub fn all_systems(&self) -> bool {
-        self.cs.as_deref().is_some_and(|cs| matches!(cs.to_ascii_lowercase().as_str(), "all" | "ext"))
+        self.cs_key().is_some_and(|cs| matches!(cs.as_str(), "all" | "ext"))
     }
 
     /// The coordinate system. With `cs=all` this is horizontal, the most demanding of the
-    /// three: it needs a place and an observer on the Earth.
+    /// three: on the Earth it needs a place.
     pub fn coord_system(&self) -> Result<CoordSystem, ApiError> {
         if self.all_systems() {
             return Ok(CoordSystem::Horizontal);
         }
-        let key = self.cs.as_deref().map(str::to_ascii_lowercase);
-        Ok(match key.as_deref() {
-            Some("ecliptic" | "ecl" | "0") => CoordSystem::Ecliptic,
+        Ok(match self.cs_key().as_deref() {
+            None | Some("ecliptic" | "ecl" | "0") => CoordSystem::Ecliptic,
             Some("equatorial" | "equ" | "eq" | "1") => CoordSystem::Equatorial,
             Some("horizontal" | "hor" | "2") => CoordSystem::Horizontal,
             Some(other) => return Err(ApiError::bad(format!("unknown cs: {other} (use ecl, equ, hor or all)"))),
-            None => match self.eq {
-                Some(1) => CoordSystem::Equatorial,
-                Some(3) => CoordSystem::Horizontal,
-                _ => CoordSystem::Ecliptic,
-            },
         })
     }
 
@@ -210,7 +228,7 @@ impl Params {
                 let keys: Vec<&str> = Perspective::ALL.iter().map(|p| p.key()).collect();
                 ApiError::bad(format!("unknown ps: {key} (use one of {})", keys.join(", ")))
             }),
-            None if self.topo == Some(1) => Ok(Perspective::Topocentric),
+            None if self.topo == Some(true) => Ok(Perspective::Topocentric),
             None => Ok(Perspective::Geocentric),
         }
     }
@@ -219,12 +237,15 @@ impl Params {
     /// for observers on the Earth's surface and for horizontal coordinates, optional otherwise.
     pub fn view(&self) -> Result<(CoordSystem, Perspective, GeoPos), ApiError> {
         let (cs, ps) = (self.coord_system()?, self.perspective()?);
-        let geo = if cs == CoordSystem::Horizontal || ps.needs_location() {
-            self.require_geo()?
-        } else {
-            self.geo()?.unwrap_or_default()
-        };
-        Ok((cs, ps, geo))
+        Ok((cs, ps, self.view_geo(cs, ps)?))
+    }
+
+    /// The location for a view: required for observers on the Earth's surface and for
+    /// horizontal coordinates, optional otherwise. `cs=all` away from the Earth has no
+    /// horizon to compute, so it needs no place.
+    fn view_geo(&self, cs: CoordSystem, ps: Perspective) -> Result<GeoPos, ApiError> {
+        let horizon = cs == CoordSystem::Horizontal && !(self.all_systems() && !ps.is_earth_based());
+        if horizon || ps.needs_location() { self.require_geo() } else { Ok(self.geo()?.unwrap_or_default()) }
     }
 
     /// The perspective for the position and longitude endpoints, where the default is
@@ -240,12 +261,7 @@ impl Params {
     /// As [`view`](Self::view), with the topocentric default of the position endpoints.
     pub fn view_topo(&self) -> Result<(CoordSystem, Perspective, GeoPos), ApiError> {
         let (cs, ps) = (self.coord_system()?, self.perspective_or_topo()?);
-        let geo = if cs == CoordSystem::Horizontal || ps.needs_location() {
-            self.require_geo()?
-        } else {
-            self.geo()?.unwrap_or_default()
-        };
-        Ok((cs, ps, geo))
+        Ok((cs, ps, self.view_geo(cs, ps)?))
     }
 
     /// The bodies to compute for a perspective: `bodies` (or `body`), which may include the
@@ -315,13 +331,7 @@ impl Params {
     /// Rise/set options: a preset (`mode` or `hindu`), then each explicit parameter on top.
     pub fn rise_set_options(&self) -> Result<RiseSetOptions, ApiError> {
         use astro_calc_core::{DiscAlignment, Horizon, Refraction};
-        let flag = |name: &str, v: Option<u8>| match v {
-            None => Ok(None),
-            Some(0) => Ok(Some(false)),
-            Some(1) => Ok(Some(true)),
-            Some(other) => Err(ApiError::bad(format!("{name} must be 0 or 1, not {other}"))),
-        };
-        let mut opts = match (flag("hindu", self.hindu)?, self.mode) {
+        let mut opts = match (self.hindu, self.mode) {
             (Some(true), _) => RiseSetOptions::hindu_rising(),
             (_, None) => RiseSetOptions::default(),
             (_, Some(mode)) if mode <= 7 => RiseSetOptions::from_legacy_mode(mode),
@@ -351,7 +361,7 @@ impl Params {
                 opts.refraction = Refraction::Atmosphere { pressure, temperature };
             }
         }
-        if let Some(fixed) = flag("fixed", self.fixed)? {
+        if let Some(fixed) = self.fixed {
             opts.fixed_disc = fixed;
         }
         if let Some(altitude) = self.horizon {
@@ -368,13 +378,13 @@ impl Params {
                 other => return Err(ApiError::bad(format!("unknown twilight: {other} (use civil, nautical or astronomical)"))),
             };
         }
-        if let Some(dip) = flag("dip", self.dip)? {
+        if let Some(dip) = self.dip {
             opts.dip = dip;
         }
-        if let Some(geocentric) = flag("geoc", self.geoc)? {
+        if let Some(geocentric) = self.geoc {
             opts.geocentric = geocentric;
         }
-        if let Some(ignore) = flag("nolat", self.nolat)? {
+        if let Some(ignore) = self.nolat {
             opts.ignore_latitude = ignore;
         }
         Ok(opts)
