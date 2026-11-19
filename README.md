@@ -73,7 +73,7 @@ rise and set times and the Indian day.
 | `ps` | Perspective: where the observer is; see the table below. For the longitude and position endpoints the default is `topo` when a place is given and `geo` when not; elsewhere it is `geo`. |
 | `aya` | Ayanamsha keys, comma-separated (`lh`, `kr`, `tc`, ...), or `all`. |
 | `sid` | `1` or `true` subtracts the first ayanamsha from ecliptic longitudes. |
-| `hsys` | House system letters, comma-separated (`P,K,W`), or `all`. Default `W`. |
+| `hsys` | House system letters, comma-separated (`P,K,W`), or `all`. Default `W`. `G` gives the 36 Gauquelin sectors. |
 | `num`, `before` | How many items to return, and how many preceding the date. |
 | `pd` | Samples per day (or per year with `years`) in `/progress`. Default 1. |
 | `aspects` | Aspect definitions as `angle:orb` pairs: `0:8,60:6,90:8`. |
@@ -196,7 +196,7 @@ horizon. From any other centre (`helio`, `seleno` and so on) there is no horizon
 | `/ascendant` | The ascendant and the related angles, as `points`. The top-level `ascendant` field is deprecated: read `points.ascendant` | place |
 | `/ascendant-progress` | The ascendant at even steps, as `ascendants` (`jd`, `lng`), from `pdays` days before the moment (default 1) to `days` days after it (default 8), with the `points` of the moment itself | place, `days`, `pdays`, `pd` (samples per day, default 24) |
 | `/angles` | Ascendant, MC, vertex and the other angles | place |
-| `/houses` | Angles and house cusps. With `aya` the cusps are sidereal by the first ayanamsha named (given back as `ayanamsha`, with `sidereal: true`): they move back by its value, and whole-sign houses start at the sidereal sign of the ascendant. The `angles` stay tropical | place, `hsys`, `aya` |
+| `/houses` | Angles and house cusps: 12 per system, or 36 for the Gauquelin sectors (`G`), which are numbered clockwise from the ascendant, so their longitudes decrease. With `aya` the cusps are sidereal by the first ayanamsha named (given back as `ayanamsha`, with `sidereal: true`): they move back by its value, and whole-sign houses start at the sidereal sign of the ascendant. The `angles` stay tropical | place, `hsys`, `aya` |
 | `/ayanamsha` | Ayanamsha values | `aya` |
 | `/rise-set` | Rise, set and meridian transits for the local day | place, `bodies`, rise/set options |
 | `/rise-sets` | The same, with lowest and highest altitude, day by day | place, `bodies`, `days`, `pdays`, rise/set options |

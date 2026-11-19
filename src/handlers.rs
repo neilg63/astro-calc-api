@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use astro_calc_core::{
-    Ayanamsha, Body, BodyPos, BodyPosExt, CoordSystem, GeoPos, HouseSystem, JdUt, Perspective, Station, named_stars, to_sidereal,
+    Ayanamsha, Body, BodyPos, BodyPosExt, CoordSystem, GauquelinSectors, GeoPos, HouseSystem, JdUt, Perspective, Station, named_stars, to_sidereal,
 };
 use axum::Json;
 use axum::extract::State;
@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use crate::AppState;
 use crate::error::ApiError;
-use crate::params::{Params, Q, YEAR_DAYS};
+use crate::params::{HouseChoice, Params, Q, YEAR_DAYS};
 
 type Reply = Result<Json<Value>, ApiError>;
 type App = State<Arc<AppState>>;
@@ -391,18 +391,33 @@ pub async fn angles(Q(q): Q) -> Reply {
     Ok(Json(json!({ "date": moment(jd.value()), "geo": geo_json(geo), "angles": angles_json(&astro_calc_core::angles(jd, geo)) })))
 }
 
-/// `/houses`: angles and the cusps of each requested house system. Naming an ayanamsha in
-/// `aya` makes the cusps sidereal; the angles stay tropical, as everywhere else.
+/// `/houses`: angles and the cusps of each requested house system; `G` gives the 36 Gauquelin
+/// sectors. Naming an ayanamsha in `aya` makes the cusps sidereal; the angles stay tropical,
+/// as everywhere else.
 pub async fn houses(State(app): App, Q(q): Q) -> Reply {
-    let (jd, geo, systems) = (q.jd()?, q.require_geo()?, q.house_systems()?);
+    let (jd, geo, choices) = (q.jd()?, q.require_geo()?, q.house_choices()?);
     let (aya, ayanamsha) = longitude_ayanamsha(&app, &q, jd)?;
     let offset = ayanamsha["value"].as_f64();
-    let (points, sets) = astro_calc_core::house_sets(jd, geo, &systems);
-    let sets: Vec<Value> = sets
+    let points = astro_calc_core::angles(jd, geo);
+    let code = |s: HouseSystem| s.code().to_string();
+    let sets: Vec<Value> = choices
         .iter()
-        .map(|h| {
-            let cusps = offset.map_or(h.cusps, |o| sidereal_cusps(h.system, h.cusps, points.ascendant, o));
-            json!({ "system": h.system.code().to_string(), "name": h.system.name(), "cusps": cusps, "fallback": h.fallback.map(|f: HouseSystem| f.code().to_string()) })
+        .map(|&choice| {
+            // Whole-sign houses are signs of the zodiac itself: they follow it when it is sidereal.
+            let (system, name, mut cusps, fallback, by_sign) = match choice {
+                HouseChoice::System(system) => {
+                    let h = astro_calc_core::houses(jd, geo, system);
+                    (code(system), system.name(), h.cusps.to_vec(), h.fallback, system == HouseSystem::WholeSign)
+                }
+                HouseChoice::Gauquelin => {
+                    let g = astro_calc_core::gauquelin_sectors(jd, geo);
+                    (GauquelinSectors::CODE.to_string(), GauquelinSectors::NAME, g.cusps.to_vec(), g.fallback, false)
+                }
+            };
+            if let Some(offset) = offset {
+                sidereal_cusps(&mut cusps, by_sign, points.ascendant, offset);
+            }
+            json!({ "system": system, "name": name, "cusps": cusps, "fallback": fallback.map(code) })
         })
         .collect();
     Ok(Json(json!({
@@ -411,15 +426,14 @@ pub async fn houses(State(app): App, Q(q): Q) -> Reply {
     })))
 }
 
-/// Tropical cusps in the sidereal zodiac of an ayanamsha of `offset` degrees. Systems that
-/// divide the sky only move back by the offset. Whole-sign houses are signs of the zodiac
-/// itself, so they start at the sidereal sign the ascendant is in.
-fn sidereal_cusps(system: HouseSystem, cusps: [f64; 12], ascendant: f64, offset: f64) -> [f64; 12] {
-    if system == HouseSystem::WholeSign {
-        let first = ((ascendant - offset).rem_euclid(360.0) / 30.0).floor() * 30.0;
-        return std::array::from_fn(|i| (first + 30.0 * i as f64).rem_euclid(360.0));
+/// Moves tropical cusps into the sidereal zodiac of an ayanamsha of `offset` degrees. Systems
+/// that divide the sky only move back by the offset. Houses that are signs (`by_sign`) start
+/// at the sidereal sign the ascendant is in.
+fn sidereal_cusps(cusps: &mut [f64], by_sign: bool, ascendant: f64, offset: f64) {
+    let first = ((ascendant - offset).rem_euclid(360.0) / 30.0).floor() * 30.0;
+    for (i, cusp) in cusps.iter_mut().enumerate() {
+        *cusp = if by_sign { (first + 30.0 * i as f64).rem_euclid(360.0) } else { (*cusp - offset).rem_euclid(360.0) };
     }
-    cusps.map(|c| (c - offset).rem_euclid(360.0))
 }
 
 /// `/ayanamsha`: the requested ayanamshas (all by default).

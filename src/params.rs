@@ -1,6 +1,6 @@
 //! Query-string parameters shared by every endpoint.
 
-use astro_calc_core::{AspectOrb, ChartKind, Ayanamsha, Body, CoordSystem, GeoPos, HouseSystem, JdUt, Perspective, RiseSetOptions, aspect_orb, parse_body_list, parse_body_list_for};
+use astro_calc_core::{AspectOrb, ChartKind, Ayanamsha, Body, CoordSystem, GauquelinSectors, GeoPos, HouseSystem, JdUt, Perspective, RiseSetOptions, aspect_orb, parse_body_list, parse_body_list_for};
 use axum::extract::{FromRequestParts, Query};
 use axum::http::request::Parts;
 use chrono::Utc;
@@ -141,6 +141,13 @@ impl<S: Send + Sync> FromRequestParts<S> for Q {
             Err(e) => Err(ApiError::bad(e.body_text())),
         }
     }
+}
+
+/// One entry of `hsys`: a twelve-house system, or the 36 Gauquelin sectors (`G`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum HouseChoice {
+    System(HouseSystem),
+    Gauquelin,
 }
 
 fn items(list: &str) -> impl Iterator<Item = &str> {
@@ -348,17 +355,19 @@ impl Params {
         items(list).map(|k| k.parse().map_err(|_| ApiError::bad(format!("unknown ayanamsha: {k}")))).collect()
     }
 
-    /// House systems named in `hsys`; `all` gives every one. Defaults to whole sign.
-    pub fn house_systems(&self) -> Result<Vec<HouseSystem>, ApiError> {
-        let Some(list) = self.hsys.as_deref() else { return Ok(vec![HouseSystem::WholeSign]) };
+    /// House divisions named in `hsys`; `all` gives every one, the Gauquelin sectors last.
+    /// Defaults to whole sign.
+    pub fn house_choices(&self) -> Result<Vec<HouseChoice>, ApiError> {
+        let Some(list) = self.hsys.as_deref() else { return Ok(vec![HouseChoice::System(HouseSystem::WholeSign)]) };
         if list.trim().eq_ignore_ascii_case("all") {
-            return Ok(HouseSystem::ALL.to_vec());
+            return Ok(HouseSystem::ALL.into_iter().map(HouseChoice::System).chain([HouseChoice::Gauquelin]).collect());
         }
         items(list)
             .map(|k| {
                 let mut chars = k.chars();
-                match (chars.next().and_then(HouseSystem::from_code), chars.next()) {
-                    (Some(system), None) => Ok(system),
+                match (chars.next(), chars.next()) {
+                    (Some(c), None) if c.eq_ignore_ascii_case(&GauquelinSectors::CODE) => Ok(HouseChoice::Gauquelin),
+                    (Some(c), None) => HouseSystem::from_code(c).map(HouseChoice::System).ok_or_else(|| ApiError::bad(format!("unknown house system: {k}"))),
                     _ => Err(ApiError::bad(format!("unknown house system: {k}"))),
                 }
             })

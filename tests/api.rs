@@ -303,7 +303,22 @@ async fn chart_endpoints() {
     let sets = v["sets"].as_array().unwrap();
     assert_eq!(sets.iter().map(|x| x["system"].as_str().unwrap()).collect::<Vec<_>>(), ["P", "U", "W"]);
     assert!(close(f(&sets[0]["cusps"][1]), houses(JD, geo, HouseSystem::Placidus).cusps[1]));
-    assert_eq!(ok(&s, &format!("/houses?{q}&hsys=all")).await["sets"].as_array().unwrap().len(), HouseSystem::ALL.len());
+    // `all` is every twelve-house system and then the Gauquelin sectors.
+    let all = ok(&s, &format!("/houses?{q}&hsys=all")).await;
+    let all = all["sets"].as_array().unwrap();
+    assert_eq!(all.len(), HouseSystem::ALL.len() + 1);
+    assert_eq!(all.last().unwrap()["system"], "G");
+    // The 36 sectors run clockwise from the ascendant; every third cusp is a Placidus cusp.
+    let v = ok(&s, &format!("/houses?{q}&hsys=g,P")).await;
+    let (sectors, placidus) = (v["sets"][0]["cusps"].as_array().unwrap(), v["sets"][1]["cusps"].as_array().unwrap());
+    assert_eq!((v["sets"][0]["system"].as_str(), v["sets"][0]["name"].as_str()), (Some("G"), Some("Gauquelin Sectors")));
+    assert_eq!((sectors.len(), placidus.len()), (36, 12));
+    let core = gauquelin_sectors(JD, geo);
+    for i in 0..36 {
+        assert!(close(f(&sectors[i]), core.cusps[i]), "sector cusp {i}");
+    }
+    assert!(close(f(&sectors[0]), f(&v["angles"]["ascendant"])) && close(f(&sectors[9]), f(&v["angles"]["mc"])));
+    assert!(close(f(&sectors[3]), f(&placidus[11])) && close(f(&sectors[33]), f(&placidus[1])));
     assert_eq!(ok(&s, &format!("/houses?{q}")).await["sets"][0]["system"], "W");
     // An ayanamsha moves the cusps back, and whole-sign houses to the sidereal sign of the ascendant.
     let tropical = ok(&s, &format!("/houses?{q}&hsys=P,W")).await;
@@ -321,6 +336,11 @@ async fn chart_endpoints() {
     let first = ((f(&tropical["angles"]["ascendant"]) - offset).rem_euclid(360.0) / 30.0).floor() * 30.0;
     assert!(close(f(&sidereal["sets"][1]["cusps"][0]), first));
     assert!(close(f(&sidereal["sets"][1]["cusps"][3]), (first + 90.0).rem_euclid(360.0)));
+    // The sectors move back with the rest.
+    let (g0, g1) = (ok(&s, &format!("/houses?{q}&hsys=G")).await, ok(&s, &format!("/houses?{q}&hsys=G&aya=lh")).await);
+    for i in [0, 9, 20, 35] {
+        assert!(close(f(&g1["sets"][0]["cusps"][i]), (f(&g0["sets"][0]["cusps"][i]) - offset).rem_euclid(360.0)), "sector cusp {i}");
+    }
     assert_eq!(get(&s, &format!("/houses?{q}&aya=nope")).await.0, StatusCode::BAD_REQUEST);
 
     let v = ok(&s, &format!("/ayanamsha?jd={JD}&aya=lh,tc")).await;
