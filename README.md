@@ -196,7 +196,7 @@ horizon. From any other centre (`helio`, `seleno` and so on) there is no horizon
 | `/ascendant` | The ascendant and the related angles, as `points`. The top-level `ascendant` field is deprecated: read `points.ascendant` | place |
 | `/ascendant-progress` | The ascendant at even steps, as `ascendants` (`jd`, `lng`), from `pdays` days before the moment (default 1) to `days` days after it (default 8), with the `points` of the moment itself | place, `days`, `pdays`, `pd` (samples per day, default 24) |
 | `/angles` | Ascendant, MC, vertex and the other angles | place |
-| `/houses` | Angles and house cusps | place, `hsys` |
+| `/houses` | Angles and house cusps. With `aya` the cusps are sidereal by the first ayanamsha named (given back as `ayanamsha`, with `sidereal: true`): they move back by its value, and whole-sign houses start at the sidereal sign of the ascendant. The `angles` stay tropical | place, `hsys`, `aya` |
 | `/ayanamsha` | Ayanamsha values | `aya` |
 | `/rise-set` | Rise, set and meridian transits for the local day | place, `bodies`, rise/set options |
 | `/rise-sets` | The same, with lowest and highest altitude, day by day | place, `bodies`, `days`, `pdays`, rise/set options |

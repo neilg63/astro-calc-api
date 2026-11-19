@@ -391,15 +391,35 @@ pub async fn angles(Q(q): Q) -> Reply {
     Ok(Json(json!({ "date": moment(jd.value()), "geo": geo_json(geo), "angles": angles_json(&astro_calc_core::angles(jd, geo)) })))
 }
 
-/// `/houses`: angles and the cusps of each requested house system.
-pub async fn houses(Q(q): Q) -> Reply {
+/// `/houses`: angles and the cusps of each requested house system. Naming an ayanamsha in
+/// `aya` makes the cusps sidereal; the angles stay tropical, as everywhere else.
+pub async fn houses(State(app): App, Q(q): Q) -> Reply {
     let (jd, geo, systems) = (q.jd()?, q.require_geo()?, q.house_systems()?);
+    let (aya, ayanamsha) = longitude_ayanamsha(&app, &q, jd)?;
+    let offset = ayanamsha["value"].as_f64();
     let (points, sets) = astro_calc_core::house_sets(jd, geo, &systems);
     let sets: Vec<Value> = sets
         .iter()
-        .map(|h| json!({ "system": h.system.code().to_string(), "name": h.system.name(), "cusps": h.cusps, "fallback": h.fallback.map(|f: HouseSystem| f.code().to_string()) }))
+        .map(|h| {
+            let cusps = offset.map_or(h.cusps, |o| sidereal_cusps(h.system, h.cusps, points.ascendant, o));
+            json!({ "system": h.system.code().to_string(), "name": h.system.name(), "cusps": cusps, "fallback": h.fallback.map(|f: HouseSystem| f.code().to_string()) })
+        })
         .collect();
-    Ok(Json(json!({ "date": moment(jd.value()), "geo": geo_json(geo), "angles": angles_json(&points), "sets": sets })))
+    Ok(Json(json!({
+        "date": moment(jd.value()), "geo": geo_json(geo), "sidereal": aya.is_some(), "ayanamsha": ayanamsha,
+        "angles": angles_json(&points), "sets": sets,
+    })))
+}
+
+/// Tropical cusps in the sidereal zodiac of an ayanamsha of `offset` degrees. Systems that
+/// divide the sky only move back by the offset. Whole-sign houses are signs of the zodiac
+/// itself, so they start at the sidereal sign the ascendant is in.
+fn sidereal_cusps(system: HouseSystem, cusps: [f64; 12], ascendant: f64, offset: f64) -> [f64; 12] {
+    if system == HouseSystem::WholeSign {
+        let first = ((ascendant - offset).rem_euclid(360.0) / 30.0).floor() * 30.0;
+        return std::array::from_fn(|i| (first + 30.0 * i as f64).rem_euclid(360.0));
+    }
+    cusps.map(|c| (c - offset).rem_euclid(360.0))
 }
 
 /// `/ayanamsha`: the requested ayanamshas (all by default).

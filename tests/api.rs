@@ -305,6 +305,23 @@ async fn chart_endpoints() {
     assert!(close(f(&sets[0]["cusps"][1]), houses(JD, geo, HouseSystem::Placidus).cusps[1]));
     assert_eq!(ok(&s, &format!("/houses?{q}&hsys=all")).await["sets"].as_array().unwrap().len(), HouseSystem::ALL.len());
     assert_eq!(ok(&s, &format!("/houses?{q}")).await["sets"][0]["system"], "W");
+    // An ayanamsha moves the cusps back, and whole-sign houses to the sidereal sign of the ascendant.
+    let tropical = ok(&s, &format!("/houses?{q}&hsys=P,W")).await;
+    assert_eq!(tropical["sidereal"], false);
+    assert!(tropical["ayanamsha"].is_null());
+    let sidereal = ok(&s, &format!("/houses?{q}&hsys=P,W&aya=lh")).await;
+    assert_eq!(sidereal["sidereal"], true);
+    assert_eq!(sidereal["ayanamsha"]["key"], "lh");
+    let offset = f(&sidereal["ayanamsha"]["value"]);
+    assert!(close(f(&sidereal["angles"]["ascendant"]), f(&tropical["angles"]["ascendant"])));
+    for i in 0..12 {
+        let moved = (f(&tropical["sets"][0]["cusps"][i]) - offset).rem_euclid(360.0);
+        assert!(close(f(&sidereal["sets"][0]["cusps"][i]), moved), "cusp {i}");
+    }
+    let first = ((f(&tropical["angles"]["ascendant"]) - offset).rem_euclid(360.0) / 30.0).floor() * 30.0;
+    assert!(close(f(&sidereal["sets"][1]["cusps"][0]), first));
+    assert!(close(f(&sidereal["sets"][1]["cusps"][3]), (first + 90.0).rem_euclid(360.0)));
+    assert_eq!(get(&s, &format!("/houses?{q}&aya=nope")).await.0, StatusCode::BAD_REQUEST);
 
     let v = ok(&s, &format!("/ayanamsha?jd={JD}&aya=lh,tc")).await;
     assert!(close(f(&v["ayanamshas"][0]["value"]), s.eph.ayanamsha(JD, Ayanamsha::Lahiri).unwrap()));
