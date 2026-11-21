@@ -179,6 +179,21 @@ with `cs=all`. `dist` and `dist_speed` (AU) are the same in every system. For an
 horizon. From any other centre (`helio`, `seleno` and so on) there is no horizon: no place is needed and
 `azi`, `alt` and their speeds are `null`. `cs=all` is not available in `/progress`.
 
+`ps=both` on `/position`, `/positions` and the extended endpoints gives the geocentric and
+topocentric values side by side. It needs a place. Each body then holds its `key` and two
+blocks with the same fields, `geoc` (seen from the centre of the Earth) and `topo` (seen
+from the place):
+
+```json
+{ "key": "mo",
+  "geoc": { "lng": 185.0029, "lat": -1.4403, "ras": 184.0201, "dcl": -3.3099, "azi": 92.2042, "alt": -5.4679, "lng_speed": 12.6941, "...": "..." },
+  "topo": { "lng": 184.8297, "lat": -2.3535, "ras": 183.4975, "dcl": -4.0793, "azi": 92.2071, "alt": -6.3973, "lng_speed": 12.8691, "...": "..." } }
+```
+
+With `sid=1` both `lng` values are sidereal. The difference between the blocks is the
+parallax: up to about a degree for the Moon, a few arc-seconds for the planets. Other
+endpoints do not accept `ps=both`.
+
 ## Endpoints
 
 | Endpoint | Returns | Main parameters |

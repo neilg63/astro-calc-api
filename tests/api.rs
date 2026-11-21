@@ -276,6 +276,36 @@ async fn positions_match_the_core_library() {
 }
 
 #[tokio::test]
+async fn both_views_pair_geocentric_and_topocentric() {
+    let Some(s) = state() else { return };
+    let base = format!("jd={JD}&loc=56.1,-3.6&bodies=su,mo,ma&aya=lh&sid=1");
+    let both = ok(&s, &format!("/extended-positions?{base}&ps=both")).await;
+    assert_eq!((both["ps"].as_str(), both["cs"].as_str()), (Some("both"), Some("all")));
+    assert!(both["points"]["ascendant"].is_number());
+    for (block, ps) in [("geoc", "geo"), ("topo", "topo")] {
+        let single = ok(&s, &format!("/extended-positions?{base}&ps={ps}")).await;
+        for (pair, one) in both["bodies"].as_array().unwrap().iter().zip(single["bodies"].as_array().unwrap()) {
+            assert_eq!(pair.as_object().unwrap().keys().collect::<Vec<_>>(), ["key", "geoc", "topo"]);
+            assert_eq!(pair["key"], one["key"]);
+            let mut want = one.clone();
+            want.as_object_mut().unwrap().shift_remove("key");
+            assert_eq!(pair[block], want, "{block}");
+        }
+    }
+    // One coordinate system, and one body.
+    let ecl = ok(&s, &format!("/positions?jd={JD}&loc=56.1,-3.6&bodies=mo&ps=both")).await;
+    let moon = &ecl["bodies"][0];
+    assert!((f(&moon["geoc"]["lng"]) - f(&moon["topo"]["lng"])).abs() > 0.05);
+    assert!(moon["geoc"]["ras"].is_null());
+    let one = ok(&s, &format!("/extended-position?jd={JD}&loc=56.1,-3.6&body=mo&ps=both")).await;
+    assert!(one["body"]["topo"]["alt"].is_number());
+    // It needs a place, and only the position endpoints take it.
+    for path in [format!("/extended-positions?jd={JD}&ps=both"), "/moon-phases?ps=both".into(), "/longitudes?ps=both&loc=56.1,-3.6".into()] {
+        assert_eq!(get(&s, &path).await.0, StatusCode::BAD_REQUEST, "{path}");
+    }
+}
+
+#[tokio::test]
 async fn chart_endpoints() {
     let Some(s) = state() else { return };
     let geo = GeoPos::new(56.1, -3.6, 0.0).unwrap();

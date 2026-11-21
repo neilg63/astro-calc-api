@@ -56,7 +56,8 @@ pub struct Params {
     /// or `all` for the three together.
     pub cs: Option<String>,
     /// Perspective: `geo`, `topo`, `helio`, `seleno`, `hermeo`, `cythero`, `areo`, `jovi`,
-    /// `crono`, `bary` or `local`, or the full names.
+    /// `crono`, `bary` or `local`, or the full names. The position endpoints also take `both`:
+    /// geocentric and topocentric values side by side.
     pub ps: Option<String>,
     /// Ayanamsha keys, comma-separated, or `all`.
     pub aya: Option<String>,
@@ -266,8 +267,14 @@ impl Params {
         })
     }
 
+    /// Whether geocentric and topocentric values were asked for together: `ps=both`.
+    pub fn both_views(&self) -> bool {
+        self.ps.as_deref().is_some_and(|ps| ps.trim().eq_ignore_ascii_case("both"))
+    }
+
     pub fn perspective(&self) -> Result<Perspective, ApiError> {
         match self.ps.as_deref() {
+            Some(key) if self.both_views() => Err(ApiError::bad(format!("ps={key} is only available for the position endpoints"))),
             Some(key) => key.parse().map_err(|_| {
                 let keys: Vec<&str> = Perspective::ALL.iter().map(|p| p.key()).collect();
                 ApiError::bad(format!("unknown ps: {key} (use one of {})", keys.join(", ")))

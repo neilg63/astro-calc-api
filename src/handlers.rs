@@ -182,19 +182,70 @@ fn add_points(v: &mut Value, jd: JdUt, geo: GeoPos, ps: Perspective) {
     }
 }
 
+/// What a position request asks for, apart from the perspective.
+struct PositionQuery<'a> {
+    app: &'a AppState,
+    q: &'a Params,
+    bodies: &'a [Body],
+    jd: JdUt,
+    geo: GeoPos,
+    cs: CoordSystem,
+    sid: Option<f64>,
+}
+
+impl PositionQuery<'_> {
+    /// The bodies as JSON from one perspective, in one coordinate system or in all three.
+    fn seen_from(&self, ps: Perspective) -> Result<Vec<Value>, ApiError> {
+        if self.q.all_systems() {
+            ext_list(self.app, self.bodies, self.jd, self.geo, ps, self.sid)
+        } else {
+            Ok(self.app.eph.calc_positions(self.bodies, self.jd, self.geo, self.cs, ps)?.iter().map(|p| body_json(p, self.cs, ps, self.sid)).collect())
+        }
+    }
+
+    /// The bodies as JSON. With `ps=both` each body holds two blocks with the same fields:
+    /// `geoc`, seen from the centre of the Earth, and `topo`, seen from the place.
+    fn list(&self, ps: Perspective, paired: bool) -> Result<Vec<Value>, ApiError> {
+        let seen = self.seen_from(ps)?;
+        if !paired {
+            return Ok(seen);
+        }
+        let block = |mut v: Value| {
+            let key = v.as_object_mut().and_then(|o| o.shift_remove("key")).unwrap_or(Value::Null);
+            (key, v)
+        };
+        Ok(self
+            .seen_from(Perspective::Geocentric)?
+            .into_iter()
+            .zip(seen)
+            .map(|(geoc, topo)| {
+                let ((key, geoc), (_, topo)) = (block(geoc), block(topo));
+                json!({ "key": key, "geoc": geoc, "topo": topo })
+            })
+            .collect())
+    }
+}
+
+/// `ps=both` on the position endpoints: the request is resolved as topocentric (so a place
+/// is required) and the geocentric values are added alongside.
+fn take_paired(q: &mut Params) -> bool {
+    let paired = q.both_views();
+    if paired {
+        q.ps = Some("topo".into());
+    }
+    paired
+}
+
 /// `/position`: one body.
-pub async fn position(State(app): App, Q(q): Q) -> Reply {
+pub async fn position(State(app): App, Q(mut q): Q) -> Reply {
+    let paired = take_paired(&mut q);
     let jd = q.jd()?;
     let (cs, ps, geo) = q.view_topo()?;
     let body = *q.body_list(ps, &[])?.first().ok_or_else(|| ApiError::bad("a body is required: body=key"))?;
     let (ayanamshas, sid) = ayanamsha_values(&app, &q, jd, cs)?;
-    let item = if q.all_systems() {
-        ext_list(&app, &[body], jd, geo, ps, sid)?.remove(0)
-    } else {
-        body_json(&app.eph.calc_position(body, jd, geo, cs, ps)?, cs, ps, sid)
-    };
+    let item = PositionQuery { app: &app, q: &q, bodies: &[body], jd, geo, cs, sid }.list(ps, paired)?.remove(0);
     let mut v = json!({
-        "date": moment(jd.value()), "geo": geo_json(geo), "cs": cs_label(&q, cs, ps), "ps": ps_key(ps),
+        "date": moment(jd.value()), "geo": geo_json(geo), "cs": cs_label(&q, cs, ps), "ps": if paired { "both" } else { ps_key(ps) },
         "sidereal": sid.is_some(), "ayanamshas": ayanamshas, "body": item,
     });
     add_points(&mut v, jd, geo, ps);
@@ -202,18 +253,15 @@ pub async fn position(State(app): App, Q(q): Q) -> Reply {
 }
 
 /// `/positions`: several bodies at one moment.
-pub async fn positions(State(app): App, Q(q): Q) -> Reply {
+pub async fn positions(State(app): App, Q(mut q): Q) -> Reply {
+    let paired = take_paired(&mut q);
     let jd = q.jd()?;
     let (cs, ps, geo) = q.view_topo()?;
     let bodies = q.body_list(ps, &Body::DEFAULT_BODIES)?;
     let (ayanamshas, sid) = ayanamsha_values(&app, &q, jd, cs)?;
-    let list: Vec<Value> = if q.all_systems() {
-        ext_list(&app, &bodies, jd, geo, ps, sid)?
-    } else {
-        app.eph.calc_positions(&bodies, jd, geo, cs, ps)?.iter().map(|p| body_json(p, cs, ps, sid)).collect()
-    };
+    let list = PositionQuery { app: &app, q: &q, bodies: &bodies, jd, geo, cs, sid }.list(ps, paired)?;
     let mut v = json!({
-        "date": moment(jd.value()), "geo": geo_json(geo), "cs": cs_label(&q, cs, ps), "ps": ps_key(ps),
+        "date": moment(jd.value()), "geo": geo_json(geo), "cs": cs_label(&q, cs, ps), "ps": if paired { "both" } else { ps_key(ps) },
         "sidereal": sid.is_some(), "ayanamshas": ayanamshas,
         "bodies": list,
     });
@@ -263,7 +311,8 @@ pub async fn longitudes(State(app): App, Q(q): Q) -> Reply {
 
 /// `/extended-position`: one body in all three coordinate systems at once (ecliptic,
 /// equatorial and horizontal), whatever `cs` says. An observer on the Earth needs a place;
-/// from any other centre the horizontal angles are null.
+/// from any other centre the horizontal angles are null. With `ps=both` the body holds a
+/// `geoc` and a `topo` block, each with every field.
 pub async fn extended_position(app: App, Q(mut q): Q) -> Reply {
     q.cs = Some("all".into());
     position(app, Q(q)).await
