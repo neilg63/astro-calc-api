@@ -220,6 +220,7 @@ endpoints do not accept `ps=both`.
 | `/stations` | Current speed and retrograde stations | `bodies`, `num`, `before`, or a range |
 | `/moon-phases` | The next lunar phases | `num`, or a range; `ps` |
 | `/tithis` | The lunar days of the Indian calendar and when each begins | `num`, or a range; `karanas` |
+| `/nakshatra` | The lunar mansion of the Moon (the birth star) or of other bodies | `bodies`, `aya`, place for `as` |
 | `/indian-day` | The sunrise-to-sunrise day and its time units | place, rise/set options |
 | `/pheno` | Phase, elongation, diameter and magnitude | `bodies` |
 | `/aspects` | Aspects between bodies at one moment | `bodies`, `aspects` or `orb`, `ps` |
@@ -260,6 +261,25 @@ Tithis are geocentric, so the times are the same everywhere on Earth and no plac
 They are a difference of two longitudes, so no ayanamsha is involved either. A tithi lasts
 from about 19 to 26 hours and may begin at any time of day; the tithi of a calendar day is by
 custom the one in force at local sunrise, which this endpoint does not work out.
+
+### Nakshatras
+
+The 27 nakshatras divide the sidereal zodiac into equal parts of 13°20′ from 0° Aries, each
+of four padas of 3°20′. `/nakshatra` gives the one the Moon is in at the date, which at a
+birth is the birth star. `bodies` asks for others instead, the ascendant (`as`) among them
+when a place is given. Each item has the body's `key`, its sidereal `lng`, and:
+
+| Field | Meaning |
+|---|---|
+| `num` | 1 (Ashwini) to 27 (Revati) |
+| `name` | The nakshatra's name |
+| `pada` | The quarter within it, 1 to 4 |
+| `lord` | The key of its ruler in Vimshottari order: `ke`, `ve`, `su`, `mo`, `ma`, `ra`, `ju`, `sa`, `me`, three times round |
+| `degrees` | How far into it the longitude is, from 0 up to 13°20′ |
+| `fraction` | The same as a part of the whole, 0 to 1 |
+
+The result depends on the ayanamsha: the first key in `aya`, or True Citra (`tc`) when none
+is given. The response says which was used and its value. Positions are geocentric.
 
 ### Transposed positions and transits
 

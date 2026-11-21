@@ -7,6 +7,7 @@ pub mod bulk;
 pub mod config;
 pub mod error;
 pub mod handlers;
+mod nakshatra;
 pub mod params;
 
 use std::path::Path;
@@ -65,6 +66,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/stations", get(handlers::stations))
         .route("/moon-phases", get(handlers::moon_phases))
         .route("/tithis", get(handlers::tithis))
+        .route("/nakshatra", get(handlers::nakshatra))
         .route("/indian-day", get(handlers::indian_day))
         .route("/pheno", get(handlers::pheno))
         .route("/aspects", get(handlers::aspects))

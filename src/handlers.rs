@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 
 use crate::AppState;
 use crate::error::ApiError;
+use crate::nakshatra::Nakshatra;
 use crate::params::{HouseChoice, Params, Q, YEAR_DAYS};
 
 type Reply = Result<Json<Value>, ApiError>;
@@ -147,7 +148,7 @@ pub async fn index(State(app): App) -> Json<Value> {
         "station_table": app.stations.is_some(),
         "endpoints": [
             "/bodies", "/stars", "/longitude", "/longitudes", "/position", "/positions", "/extended-position", "/extended-positions", "/progress", "/ascendant", "/ascendant-progress", "/angles", "/houses",
-            "/ayanamsha", "/rise-set", "/rise-sets", "/transposed-positions", "/transposed-transits", "/stations", "/moon-phases", "/tithis", "/indian-day", "/pheno", "/aspects"
+            "/ayanamsha", "/rise-set", "/rise-sets", "/transposed-positions", "/transposed-transits", "/stations", "/moon-phases", "/tithis", "/nakshatra", "/indian-day", "/pheno", "/aspects"
         ],
     }))
 }
@@ -794,6 +795,33 @@ pub async fn tithis(State(app): App, Q(q): Q) -> Reply {
     });
     v[if halves { "karanas" } else { "tithis" }] = list.into_iter().map(|(_, item)| item).collect();
     Ok(Json(v))
+}
+
+/// `/nakshatra`: the lunar mansion of the Moon (the birth star, at a birth), or of each body
+/// in `bodies`: one of 27 divisions of 13°20′ of the sidereal zodiac, with its pada and lord.
+/// Geocentric. The ayanamsha is the first one in `aya`, True Citra if none is given. The
+/// ascendant (`as`) may be listed when a place is given.
+pub async fn nakshatra(State(app): App, Q(q): Q) -> Reply {
+    let jd = q.jd()?;
+    let place = q.geo()?;
+    let bodies = q.body_list(Perspective::Geocentric, &[Body::Moon])?;
+    let aya = q.ayanamshas()?.first().copied().unwrap_or(Ayanamsha::TrueCitra);
+    let list = app.eph.calc_longitudes(&bodies, jd, place.unwrap_or_default(), Perspective::Geocentric, Some(aya))?;
+    let items: Vec<Value> = list
+        .iter()
+        .map(|l| {
+            let mut v = json!({ "key": l.body.to_string(), "lng": l.lng });
+            for (field, value) in Nakshatra::from_sidereal(l.lng).json().as_object().into_iter().flatten() {
+                v[field] = value.clone();
+            }
+            v
+        })
+        .collect();
+    Ok(Json(json!({
+        "date": moment(jd.value()), "geo": place.map(geo_json), "ps": "geocentric",
+        "ayanamsha": { "key": aya.key(), "name": aya.name(), "value": app.eph.ayanamsha(jd, aya)? },
+        "span": crate::nakshatra::SPAN, "bodies": items,
+    })))
 }
 
 /// `/indian-day`: the sunrise-to-sunrise day containing the date, and its time units.

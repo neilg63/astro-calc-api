@@ -555,6 +555,22 @@ async fn events_and_series() {
     assert!(karanas.iter().any(|c| c["phase"] == "FirstQuarter") && karanas.iter().any(|c| c["phase"] == "LastQuarter"));
     assert!(karanas.iter().all(|c| c["tithi"].as_u64() == Some(c["num"].as_u64().unwrap().div_ceil(2))));
 
+    // Nakshatras: the Moon by default, True Citra unless another ayanamsha is named.
+    let v = ok(&s, &format!("/nakshatra?jd={JD}")).await;
+    assert_eq!((v["ayanamsha"]["key"].as_str(), v["ps"].as_str(), v["bodies"].as_array().unwrap().len()), (Some("tc"), Some("geocentric"), 1));
+    let moon = &v["bodies"][0];
+    let want = s.eph.calc_longitude(Body::Moon, JD, GeoPos::default(), Perspective::Geocentric, Some(Ayanamsha::TrueCitra)).unwrap().value;
+    assert!(close(f(&moon["lng"]), want));
+    let span = 360.0 / 27.0;
+    assert_eq!((moon["key"].as_str(), moon["num"].as_u64()), (Some("mo"), Some((want / span) as u64 + 1)));
+    assert!((f(&moon["degrees"]) - want % span).abs() < 1e-9 && (f(&moon["fraction"]) - (want % span) / span).abs() < 1e-9);
+    assert_eq!(moon["pada"].as_u64(), Some((want * 0.3) as u64 % 4 + 1));
+    assert!(moon["name"].is_string() && moon["lord"].is_string());
+    let lahiri = ok(&s, &format!("/nakshatra?jd={JD}&aya=lh&bodies=su,mo,as&loc=56.1,-3.6")).await;
+    assert_eq!((lahiri["ayanamsha"]["key"].as_str(), lahiri["bodies"].as_array().unwrap().len()), (Some("lh"), 3));
+    assert!((f(&lahiri["bodies"][1]["lng"]) - want).abs() < 0.1 && !close(f(&lahiri["bodies"][1]["lng"]), want));
+    assert_eq!(get(&s, &format!("/nakshatra?jd={JD}&bodies=as")).await.0, StatusCode::BAD_REQUEST);
+
     // A plain series: two samples a day for three days.
     let v = ok(&s, &format!("/progress?jd={JD}&bodies=su,mo&days=3&pd=2")).await;
     assert_eq!((v["progressed"].as_bool(), v["bodies"].as_array().unwrap().len()), (Some(false), 2));
