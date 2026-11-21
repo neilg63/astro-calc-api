@@ -8,7 +8,7 @@ authors = ["Neil Gardner"]
 readme = "README.md"
 
 [dependencies]
-astro-calc-core = { version = "0.2.2", features = ["parallel"] }
+astro-calc-core = { version = "0.2.3", features = ["parallel"] }
 axum = "0.8"
 chrono = "0.4"
 julian_day_converter = "0.4.6"

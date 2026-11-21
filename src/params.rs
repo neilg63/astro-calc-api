@@ -115,6 +115,9 @@ pub struct Params {
     /// Bulk aspect searches: which charts are secondary-progressed to the date given by
     /// `dt` or `jd` (default now): `a`, `b` or `ab`.
     pub prog: Option<String>,
+    /// `/tithis`: `1` to list the karanas (half tithis) instead of the tithis.
+    #[serde(default, deserialize_with = "flag")]
+    pub karanas: Option<bool>,
     /// Older name for `ps=topo`.
     #[serde(default, deserialize_with = "flag")]
     pub topo: Option<bool>,

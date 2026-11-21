@@ -523,6 +523,38 @@ async fn events_and_series() {
     let topo = ok(&s, &format!("/moon-phases?jd={JD}&num=1&ps=topo&loc=56.1,-3.6")).await;
     assert!((f(&topo["phases"][0]["jd"]) - f(&phases[0]["jd"])).abs() > 1e-4);
 
+    // Tithis: the list opens with the one in force and runs for a lunar month by default.
+    let v = ok(&s, &format!("/tithis?jd={JD}")).await;
+    let tithis = v["tithis"].as_array().unwrap();
+    assert_eq!((tithis.len(), v["ps"].as_str()), (30, Some("geocentric")));
+    assert_eq!(tithis[0]["num"], v["tithi"]["num"]);
+    assert!(f(&tithis[0]["jd"]) <= JD && f(&tithis[1]["jd"]) > JD);
+    assert!(close(f(&tithis[1]["jd"]), s.eph.next_tithi(JD).unwrap().jd.value()));
+    for pair in tithis.windows(2) {
+        assert_eq!(pair[1]["num"].as_u64().unwrap(), pair[0]["num"].as_u64().unwrap() % 30 + 1);
+    }
+    // The 1st and the 16th begin at the new and the full moon.
+    let phases = ok(&s, &format!("/moon-phases?jd={JD}&days=31")).await;
+    for phase in phases["phases"].as_array().unwrap() {
+        let same = tithis.iter().find(|t| t["phase"] == phase["phase"]);
+        match phase["phase"].as_str() {
+            Some("New" | "Full") => assert!((f(&same.unwrap()["jd"]) - f(&phase["jd"])).abs() < 1e-6, "{phase}"),
+            _ => assert!(same.is_none()),
+        }
+    }
+    let new = tithis.iter().find(|t| t["num"] == 1).unwrap();
+    assert_eq!((new["paksha"].as_str(), new["name"].as_str(), new["day"].as_u64()), (Some("Shukla"), Some("Pratipada"), Some(1)));
+    let week = ok(&s, &format!("/tithis?jd={JD}&days=7")).await;
+    assert!((7..=9).contains(&week["tithis"].as_array().unwrap().len()));
+    assert_eq!(ok(&s, &format!("/tithis?jd={JD}&num=3")).await["tithis"].as_array().unwrap().len(), 3);
+    // Karanas: twice as many, the quarters among their boundaries.
+    let k = ok(&s, &format!("/tithis?jd={JD}&karanas=1&num=60")).await;
+    let karanas = k["karanas"].as_array().unwrap();
+    assert_eq!((karanas.len(), k["tithis"].is_null()), (60, true));
+    assert_eq!(karanas[0]["num"], k["karana"]["num"]);
+    assert!(karanas.iter().any(|c| c["phase"] == "FirstQuarter") && karanas.iter().any(|c| c["phase"] == "LastQuarter"));
+    assert!(karanas.iter().all(|c| c["tithi"].as_u64() == Some(c["num"].as_u64().unwrap().div_ceil(2))));
+
     // A plain series: two samples a day for three days.
     let v = ok(&s, &format!("/progress?jd={JD}&bodies=su,mo&days=3&pd=2")).await;
     assert_eq!((v["progressed"].as_bool(), v["bodies"].as_array().unwrap().len()), (Some(false), 2));

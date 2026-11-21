@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use astro_calc_core::{
-    Ayanamsha, Body, BodyPos, BodyPosExt, CoordSystem, GauquelinSectors, GeoPos, HouseSystem, JdUt, Perspective, Station, named_stars, to_sidereal,
+    Ayanamsha, Body, BodyPos, BodyPosExt, CoordSystem, GauquelinSectors, GeoPos, HouseSystem, JdUt, Karana, Perspective, Station, Tithi, named_stars,
+    to_sidereal,
 };
 use axum::Json;
 use axum::extract::State;
@@ -146,7 +147,7 @@ pub async fn index(State(app): App) -> Json<Value> {
         "station_table": app.stations.is_some(),
         "endpoints": [
             "/bodies", "/stars", "/longitude", "/longitudes", "/position", "/positions", "/extended-position", "/extended-positions", "/progress", "/ascendant", "/ascendant-progress", "/angles", "/houses",
-            "/ayanamsha", "/rise-set", "/rise-sets", "/transposed-positions", "/transposed-transits", "/stations", "/moon-phases", "/indian-day", "/pheno", "/aspects"
+            "/ayanamsha", "/rise-set", "/rise-sets", "/transposed-positions", "/transposed-transits", "/stations", "/moon-phases", "/tithis", "/indian-day", "/pheno", "/aspects"
         ],
     }))
 }
@@ -737,6 +738,62 @@ pub async fn moon_phases(State(app): App, Q(q): Q) -> Reply {
         "date": moment(jd.value()), "ps": if topo { "topocentric" } else { "geocentric" },
         "elongation": elongation, "elongation_speed": speed, "waxing": elongation < 180.0, "phases": list,
     })))
+}
+
+fn tithi_json(t: Tithi) -> Value {
+    json!({
+        "num": t.num(), "paksha": t.paksha().name(), "day": t.day(), "name": t.name(),
+        "phase": t.phase_at_start().map(|p| format!("{p:?}")),
+    })
+}
+
+fn karana_json(k: Karana) -> Value {
+    json!({
+        "num": k.num(), "name": k.name().name(), "tithi": k.tithi().num(), "half": if k.is_first_half() { 1 } else { 2 },
+        "phase": k.phase_at_start().map(|p| format!("{p:?}")),
+    })
+}
+
+/// A moment with the fields of what begins then.
+fn begins(jd: JdUt, what: Value) -> Value {
+    let mut v = moment(jd.value());
+    for (key, value) in what.as_object().into_iter().flatten() {
+        v[key] = value.clone();
+    }
+    v
+}
+
+/// `/tithis`: the lunar days of the Indian calendar, each with the moment it begins. The
+/// list opens with the tithi in force at the date and runs for `num` tithis (default 30, a
+/// lunar month), or up to an end date. With `karanas=1` it lists the sixty half tithis
+/// instead. Always geocentric, so the times are the same everywhere; no ayanamsha is involved.
+pub async fn tithis(State(app): App, Q(q): Q) -> Reply {
+    let jd = q.jd()?;
+    let halves = q.karanas == Some(true);
+    let num = q.num.unwrap_or(30).clamp(1, 1_000) as usize;
+    // The longest tithi is under 27 hours and the longest karana half that: the search opens
+    // far enough back to catch the one in force, and by default runs far enough to hold `num`.
+    let longest = if halves { 0.57 } else { 1.14 };
+    let end = q.jd_end(jd)?;
+    let (from, to) = (jd.add_days(-longest), end.unwrap_or_else(|| jd.add_days(num as f64 * longest)));
+    let mut list: Vec<(f64, Value)> = if halves {
+        app.eph.karanas(from, to)?.iter().map(|e| (e.jd.value(), begins(e.jd, karana_json(e.karana)))).collect()
+    } else {
+        app.eph.tithis(from, to)?.iter().map(|e| (e.jd.value(), begins(e.jd, tithi_json(e.tithi)))).collect()
+    };
+    let first = list.iter().rposition(|(start, _)| *start <= jd.value()).unwrap_or(0);
+    list.drain(..first);
+    if end.is_none() {
+        list.truncate(num);
+    }
+    let (elongation, speed) = app.eph.moon_elongation(jd)?.value;
+    let mut v = json!({
+        "date": moment(jd.value()), "end": end.map(|e| moment(e.value())), "ps": "geocentric",
+        "elongation": elongation, "elongation_speed": speed,
+        "tithi": tithi_json(Tithi::from_elongation(elongation)), "karana": karana_json(Karana::from_elongation(elongation)),
+    });
+    v[if halves { "karanas" } else { "tithis" }] = list.into_iter().map(|(_, item)| item).collect();
+    Ok(Json(v))
 }
 
 /// `/indian-day`: the sunrise-to-sunrise day containing the date, and its time units.

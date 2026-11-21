@@ -219,6 +219,7 @@ endpoints do not accept `ps=both`.
 | `/transposed-transits` | Rise, set and meridian transits of those transposed places, day by day | place, `h_dt` or `h_jd`, historic place, `bodies`, `ps`, `days`, `pdays`, rise/set options |
 | `/stations` | Current speed and retrograde stations | `bodies`, `num`, `before`, or a range |
 | `/moon-phases` | The next lunar phases | `num`, or a range; `ps` |
+| `/tithis` | The lunar days of the Indian calendar and when each begins | `num`, or a range; `karanas` |
 | `/indian-day` | The sunrise-to-sunrise day and its time units | place, rise/set options |
 | `/pheno` | Phase, elongation, diameter and magnitude | `bodies` |
 | `/aspects` | Aspects between bodies at one moment | `bodies`, `aspects` or `orb`, `ps` |
@@ -234,6 +235,31 @@ five classical planets. For each body and day it returns `day_start`, `rise`, `m
 and `ic` as Julian Days (UT), and `alt_min` and `alt_max`, the geometric altitudes in
 degrees at the lower and upper transit. A time is `null` when the event does not happen
 that day, e.g. the Sun in polar winter. At most 20,000 body-days per request.
+
+### Tithis and karanas
+
+A tithi is one of thirty equal 12° steps of the Moon − Sun elongation, numbered from the new
+moon. `/tithis` lists them with the moment each begins, opening with the tithi in force at
+the date. It gives `num` of them (default 30, one lunar month), or all those up to an end
+date (`dt2`, `jd2`, `days` or `years`). Each item has the moment (`jd`, `utc`, `unix`) and:
+
+| Field | Meaning |
+|---|---|
+| `num` | 1 to 30, from the new moon |
+| `paksha` | `Shukla` (waxing, 1 to 15) or `Krishna` (waning, 16 to 30) |
+| `day` | The day within the paksha, 1 to 15 |
+| `name` | Pratipada to Chaturdashi, then Purnima (15) or Amavasya (30) |
+| `phase` | `New` for the 1st and `Full` for the 16th, which begin at those phases; otherwise `null` |
+
+With `karanas=1` the list is of karanas instead, the sixty halves of the tithis, in a
+`karanas` array: `num` (1 to 60), `name`, `tithi`, `half` (1 or 2) and `phase`, which here
+marks all four phases. The response also gives the `elongation` at the date and the `tithi`
+and `karana` then in force.
+
+Tithis are geocentric, so the times are the same everywhere on Earth and no place is needed.
+They are a difference of two longitudes, so no ayanamsha is involved either. A tithi lasts
+from about 19 to 26 hours and may begin at any time of day; the tithi of a calendar day is by
+custom the one in force at local sunrise, which this endpoint does not work out.
 
 ### Transposed positions and transits
 
