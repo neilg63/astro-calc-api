@@ -214,8 +214,9 @@ In `/progress` every item has its Julian Day once, as `jd`, and the same blocks:
 ```
 
 - A combination with `topo` needs a place. `hg` does not.
-- A body that cannot be seen from one of the perspectives has `null` for that block: the
-  Sun from the Sun, the Earth from the Earth, the lunar nodes and the ascendant from the Sun.
+- A body that cannot be seen from one of the perspectives has no block for it: the Sun
+  and the ascendant have no `helio`, the Earth has only `helio`, and the lunar nodes have
+  no `helio`.
 - With a set of bodies (`default`, `basic`) and a heliocentric block, the Earth (`ea`) is
   added at the end of the list.
 - `cs=hor` cannot be combined with a heliocentric block; `cs=all` can, and gives `null`

@@ -305,14 +305,15 @@ async fn combined_perspectives_nest_one_block_for_each() {
     assert!(one["body"]["topo"]["alt"].is_number());
 
     // `htg` adds the view from the Sun. A body that cannot be seen from a perspective has
-    // null there: the Sun from the Sun, the Earth and the lunar nodes from the Earth or Sun.
+    // no block for it: the Sun from the Sun, the Earth and the lunar nodes from the Earth or Sun.
     let all = ok(&s, &format!("/extended-positions?jd={JD}&loc=56.1,-3.6&bodies=su,ea,ma,ra&ps=htg")).await;
     assert_eq!((all["ps"].as_str(), keys(&all, "bodies").as_str()), (Some("htg"), "su,ea,ma,ra"));
     let helio = ok(&s, &format!("/extended-positions?jd={JD}&bodies=ea,ma&ps=helio")).await;
     let (sun, earth, mars, rahu) = (&all["bodies"][0], &all["bodies"][1], &all["bodies"][2], &all["bodies"][3]);
     assert_eq!(mars.as_object().unwrap().keys().collect::<Vec<_>>(), ["key", "helio", "topo", "geo"]);
-    assert!(sun["helio"].is_null() && sun["geo"]["lng"].is_number() && sun["topo"]["azi"].is_number());
-    assert!(earth["geo"].is_null() && earth["topo"].is_null() && rahu["helio"].is_null() && rahu["geo"]["lng"].is_number());
+    assert!(sun.get("helio").is_none() && sun["geo"]["lng"].is_number() && sun["topo"]["azi"].is_number());
+    assert_eq!(earth.as_object().unwrap().keys().collect::<Vec<_>>(), ["key", "helio"]);
+    assert!(rahu.get("helio").is_none() && rahu["geo"]["lng"].is_number());
     assert_eq!((f(&earth["helio"]["lng"]), f(&mars["helio"]["ras"])), (f(&helio["bodies"][0]["lng"]), f(&helio["bodies"][1]["ras"])));
     assert!(mars["helio"]["azi"].is_null() && mars["topo"]["azi"].is_number());
     // The Sun from the Earth is opposite the Earth from the Sun.
@@ -320,7 +321,7 @@ async fn combined_perspectives_nest_one_block_for_each() {
     // `hg` needs no place; a set gains the Earth for the view from the Sun.
     let hg = ok(&s, &format!("/positions?jd={JD}&ps=hg&bodies=basic")).await;
     assert_eq!((hg["ps"].as_str(), keys(&hg, "bodies").as_str()), (Some("hg"), "su,mo,me,ve,ma,ju,sa,ke,ra,ea"));
-    assert!(hg.get("points").is_none() && hg["bodies"][9]["helio"]["lng"].is_number() && hg["bodies"][9]["geo"].is_null());
+    assert!(hg.get("points").is_none() && hg["bodies"][9]["helio"]["lng"].is_number() && hg["bodies"][9].get("geo").is_none());
 
     // `/progress` nests the same blocks in every item, beside its Julian Day.
     let series = ok(&s, &format!("/progress?jd={JD}&loc=56.1,-3.6&bodies=su,ea,ma&days=3&ps=htg")).await;
@@ -329,7 +330,7 @@ async fn combined_perspectives_nest_one_block_for_each() {
     let (sun, mars) = (series["bodies"][0]["items"].as_array().unwrap(), series["bodies"][2]["items"].as_array().unwrap());
     assert_eq!((sun.len(), mars.len()), (3, 3));
     assert_eq!(mars[1].as_object().unwrap().keys().collect::<Vec<_>>(), ["jd", "helio", "topo", "geo"]);
-    assert!((f(&mars[1]["jd"]) - JD - 1.0).abs() < 1e-9 && sun[1]["helio"].is_null() && sun[1]["geo"]["lng"].is_number());
+    assert!((f(&mars[1]["jd"]) - JD - 1.0).abs() < 1e-9 && sun[1].get("helio").is_none() && sun[1]["geo"]["lng"].is_number());
     let mut want = single["bodies"][0]["items"][1].clone();
     want.as_object_mut().unwrap().shift_remove("jd");
     assert_eq!(mars[1]["helio"], want);

@@ -237,10 +237,12 @@ impl Combined {
     }
 
     /// One object from a block for each perspective, each under its short key (`helio`,
-    /// `topo`, `geo`). A body that cannot be seen from a perspective has `null` there.
+    /// `topo`, `geo`). A body that cannot be seen from a perspective has no block for it.
     fn nest(&self, mut into: Value, mut block: impl FnMut(usize, Perspective) -> Option<Value>) -> Value {
         for (i, view) in self.views.iter().enumerate() {
-            into[perspective_key(*view)] = block(i, *view).unwrap_or(Value::Null);
+            if let Some(value) = block(i, *view) {
+                into[perspective_key(*view)] = value;
+            }
         }
         into
     }
