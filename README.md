@@ -75,7 +75,7 @@ rise and set times and the Indian day.
 | `sid` | `1` or `true` subtracts the first ayanamsha from ecliptic longitudes. |
 | `hsys` | House system letters, comma-separated (`P,K,W`), or `all`. Default `W`. `G` gives the 36 Gauquelin sectors. |
 | `num`, `before` | How many items to return, and how many preceding the date. |
-| `pd` | Samples per day (or per year with `years`) in `/progress`. Default 1. |
+| `pd` | Samples per day in `/progress`. Default 1. |
 | `aspects` | Aspect definitions as `angle:orb` pairs: `0:8,60:6,90:8`. |
 | `orb` | One orb for the default aspects (conjunction, sextile, square, trine, opposition). |
 
@@ -102,6 +102,7 @@ rise and set times and the Indian day.
 |---|---|---|
 | `geo` | `geocentric` | Centre of the Earth |
 | `topo` | `topocentric` | A place on the Earth's surface |
+| `local` | `local-space-horizon` | A place on the Earth, with positions on the local horizon |
 | `helio` | `heliocentric` | Centre of the Sun |
 | `seleno` | `selenocentric` | Centre of the Moon |
 | `hermeo` | `hermeocentric` | Centre of Mercury |
@@ -110,8 +111,12 @@ rise and set times and the Indian day.
 | `jovi` | `jovicentric` | Centre of Jupiter |
 | `crono` | `cronocentric` | Centre of Saturn |
 | `bary` | `barycentric` | Centre of mass of the solar system |
-| `local` | `local-space-horizon` | A place on the Earth, with positions on the local horizon |
 
+- Either the key or the name is accepted in `ps`. `geoc` is an older key for
+  `geo` that still works.
+- `geo` here is the geocentric perspective. It is not the top-level `geo` object of a
+  response, which is the place on the Earth (`lat`, `lng`, `alt`). The two never appear at
+  the same level: the place is at the top of a response, the perspective key inside a body.
 - From a centre other than the Earth, the Earth (`ea`) is a body and is included by
   default. The centre itself and the Earth's lunar nodes and apsides cannot be requested.
 - Coordinates from every centre stay on the Earth's ecliptic or equator of date.
@@ -179,20 +184,46 @@ with `cs=all`. `dist` and `dist_speed` (AU) are the same in every system. For an
 horizon. From any other centre (`helio`, `seleno` and so on) there is no horizon: no place is needed and
 `azi`, `alt` and their speeds are `null`. `cs=all` is not available in `/progress`.
 
-`ps=both` on `/position`, `/positions` and the extended endpoints gives the geocentric and
-topocentric values side by side. It needs a place. Each body then holds its `key` and two
-blocks with the same fields, `geoc` (seen from the centre of the Earth) and `topo` (seen
-from the place):
+**Several perspectives at once.** `/position`, `/positions`, the extended endpoints and
+`/progress` accept a combined key in `ps`:
+
+| `ps` | Blocks, in order |
+|---|---|
+| `tg` | `topo`, `geo` |
+| `hg` | `helio`, `geo` |
+| `htg` | `helio`, `topo`, `geo` |
+| `both` | `geo`, `topo` (the older name for `tg`) |
+
+Each body then holds its `key` and one block for each perspective, named by the short key
+and with the same fields a single perspective would give:
 
 ```json
-{ "key": "mo",
-  "geoc": { "lng": 185.0029, "lat": -1.4403, "ras": 184.0201, "dcl": -3.3099, "azi": 92.2042, "alt": -5.4679, "lng_speed": 12.6941, "...": "..." },
-  "topo": { "lng": 184.8297, "lat": -2.3535, "ras": 183.4975, "dcl": -4.0793, "azi": 92.2071, "alt": -6.3973, "lng_speed": 12.8691, "...": "..." } }
+{ "key": "ma",
+  "helio": { "lng": 111.7843, "lat": 1.6333, "ras": 113.8200, "dcl": 23.2878, "azi": null, "alt": null, "lng_speed": 0.4630, "...": "..." },
+  "topo":  { "lng": 149.3624, "lat": 2.1383, "ras": 152.2486, "dcl": 13.6971, "azi": 71.4613, "alt": 31.2502, "lng_speed": 0.4036, "...": "..." },
+  "geo":   { "lng": 149.3628, "lat": 2.1399, "ras": 152.2496, "dcl": 13.6985, "azi": 71.4613, "alt": 31.2518, "lng_speed": 0.4073, "...": "..." } }
 ```
 
-With `sid=1` both `lng` values are sidereal. The difference between the blocks is the
-parallax: up to about a degree for the Moon, a few arc-seconds for the planets. Other
-endpoints do not accept `ps=both`.
+In `/progress` every item has its Julian Day once, as `jd`, and the same blocks:
+
+```json
+{ "jd": 2461368.904225,
+  "helio": { "lng": 62.1100, "lat": 0.0120, "lng_speed": 1.0445, "lat_speed": -0.0003, "dist": 0.989729, "dist_speed": -0.000175 },
+  "topo":  { "lng": 58.5963, "lat": 4.1289, "lng_speed": 18.2197, "lat_speed": -1.6040, "dist": 0.002423, "dist_speed": 0.000046 },
+  "geo":   { "lng": 59.0882, "lat": 4.9889, "lng_speed": 14.9937, "lat_speed": -0.1055, "dist": 0.002415, "dist_speed": -0.000018 } }
+```
+
+- A combination with `topo` needs a place. `hg` does not.
+- A body that cannot be seen from one of the perspectives has `null` for that block: the
+  Sun from the Sun, the Earth from the Earth, the lunar nodes and the ascendant from the Sun.
+- With a set of bodies (`default`, `basic`) and a heliocentric block, the Earth (`ea`) is
+  added at the end of the list.
+- `cs=hor` cannot be combined with a heliocentric block; `cs=all` can, and gives `null`
+  for `azi` and `alt` there.
+- The top-level `ps` repeats the combined key. `points` are given when there is a place.
+- With `sid=1` every `lng` is sidereal. Between `geo` and `topo` the difference is the
+  parallax: up to about a degree for the Moon, a few arc-seconds for the planets.
+- Other endpoints do not accept a combined key.
 
 ## Endpoints
 
@@ -226,9 +257,16 @@ endpoints do not accept `ps=both`.
 | `/aspects` | Aspects between bodies at one moment | `bodies`, `aspects` or `orb`, `ps` |
 | `POST /bulk/...` | Charts and aspect searches over many records | see [Bulk endpoints](#bulk-endpoints) |
 
-`/progress` has two forms. With `days` it samples real time, `pd` times a day. With `years`
-it is a secondary progression: one day of motion stands for each year, and every sample
-carries the `age` and the real `date` it represents.
+`/progress` samples positions `pd` times a day over a span given in `days` or in `years`.
+`years` is shorthand for that many years of 365.24219 days, rounded up to a whole number
+of days: `years=2` is `days=731`. Each item has the Julian Day as `jd` and the same
+position fields whichever is used; `span` is always in days.
+
+Responses that cover a span of time (`/progress`, `/ascendant-progress`, `/rise-sets`,
+`/stations`, `/moon-phases` and `/tithis`) carry three dates: `date`, the moment asked
+about, and `start_date` and `end_date`, the two ends of the span. Each is a full date
+object with `jd`, `utc` and `unix`. `end_date` is `null` when the request is open-ended,
+e.g. the next `num` tithis.
 
 `/rise-sets` covers the local days from `pdays` before the date (default 1) up to `days`
 after it (default 8): nine days by default. The default bodies are the Sun, Moon and the

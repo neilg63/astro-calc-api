@@ -55,9 +55,10 @@ pub struct Params {
     /// Coordinate system: `ecliptic`/`ecl`/`0`, `equatorial`/`equ`/`1`, `horizontal`/`hor`/`2`,
     /// or `all` for the three together.
     pub cs: Option<String>,
-    /// Perspective: `geo`, `topo`, `helio`, `seleno`, `hermeo`, `cythero`, `areo`, `jovi`,
-    /// `crono`, `bary` or `local`, or the full names. The position endpoints also take `both`:
-    /// geocentric and topocentric values side by side.
+    /// Perspective: `geo`, `topo`, `local`, `helio`, `seleno`, `hermeo`, `cythero`, `areo`,
+    /// `jovi`, `crono` or `bary`, or the full names. The position endpoints and `/progress`
+    /// also take several at once: `tg` (or `both`), `hg` and `htg`, where `h`, `t` and `g`
+    /// are heliocentric, topocentric and geocentric.
     pub ps: Option<String>,
     /// Ayanamsha keys, comma-separated, or `all`.
     pub aya: Option<String>,
@@ -158,6 +159,22 @@ fn items(list: &str) -> impl Iterator<Item = &str> {
     list.split(',').map(str::trim).filter(|s| !s.is_empty())
 }
 
+/// The short key of a perspective, as accepted in `ps` and used to name its block when
+/// several perspectives are returned together: `geo`, `topo`, `local`, `helio`, `seleno`,
+/// `hermeo`, `cythero`, `areo`, `jovi`, `crono` or `bary`.
+pub fn perspective_key(ps: Perspective) -> &'static str {
+    ps.key()
+}
+
+/// A perspective from its short key or full name. `geoc` is an older key for `geo`, still
+/// accepted.
+fn parse_perspective(key: &str) -> Option<Perspective> {
+    match key.trim().to_ascii_lowercase().as_str() {
+        "geoc" => Some(Perspective::Geocentric),
+        _ => key.parse().ok(),
+    }
+}
+
 impl Params {
     /// Offset of local date-times from UTC, in days.
     fn offset_days(&self) -> f64 {
@@ -191,9 +208,10 @@ impl Params {
         Ok(self.span_days()?.map(|d| start.add_days(d)))
     }
 
-    /// `days`, or `years` as days.
+    /// `days`, or `years` as a whole number of days: `years` is shorthand for that many
+    /// tropical years, rounded up to the next day.
     pub fn span_days(&self) -> Result<Option<f64>, ApiError> {
-        let span = self.days.or(self.years.map(|y| y * YEAR_DAYS));
+        let span = self.days.or(self.years.map(|y| (y * YEAR_DAYS).ceil()));
         match span {
             Some(d) if !(d.is_finite() && d >= 0.0) => Err(ApiError::bad("days and years must not be negative")),
             other => Ok(other),
@@ -270,17 +288,27 @@ impl Params {
         })
     }
 
-    /// Whether geocentric and topocentric values were asked for together: `ps=both`.
-    pub fn both_views(&self) -> bool {
-        self.ps.as_deref().is_some_and(|ps| ps.trim().eq_ignore_ascii_case("both"))
+    /// Several perspectives asked for together, with the key that names them: `tg` (or its
+    /// older name `both`), `hg` or `htg`. The blocks of a response follow this order.
+    pub fn combined_views(&self) -> Option<(&'static str, Vec<Perspective>)> {
+        use Perspective::{Geocentric, Heliocentric, Topocentric};
+        match self.ps.as_deref()?.trim().to_ascii_lowercase().as_str() {
+            "both" => Some(("both", vec![Geocentric, Topocentric])),
+            "tg" => Some(("tg", vec![Topocentric, Geocentric])),
+            "hg" => Some(("hg", vec![Heliocentric, Geocentric])),
+            "htg" => Some(("htg", vec![Heliocentric, Topocentric, Geocentric])),
+            _ => None,
+        }
     }
 
     pub fn perspective(&self) -> Result<Perspective, ApiError> {
         match self.ps.as_deref() {
-            Some(key) if self.both_views() => Err(ApiError::bad(format!("ps={key} is only available for the position endpoints"))),
-            Some(key) => key.parse().map_err(|_| {
-                let keys: Vec<&str> = Perspective::ALL.iter().map(|p| p.key()).collect();
-                ApiError::bad(format!("unknown ps: {key} (use one of {})", keys.join(", ")))
+            Some(key) if self.combined_views().is_some() => {
+                Err(ApiError::bad(format!("ps={key} is only available for the position endpoints and /progress")))
+            }
+            Some(key) => parse_perspective(key).ok_or_else(|| {
+                let keys: Vec<&str> = Perspective::ALL.iter().map(|p| perspective_key(*p)).collect();
+                ApiError::bad(format!("unknown ps: {key} (use one of {}, or tg, hg, htg where several are accepted)", keys.join(", ")))
             }),
             None if self.topo == Some(true) => Ok(Perspective::Topocentric),
             None => Ok(Perspective::Geocentric),

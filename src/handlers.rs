@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use crate::AppState;
 use crate::error::ApiError;
 use crate::nakshatra::Nakshatra;
-use crate::params::{HouseChoice, Params, Q, YEAR_DAYS};
+use crate::params::{HouseChoice, Params, Q, perspective_key};
 
 type Reply = Result<Json<Value>, ApiError>;
 type App = State<Arc<AppState>>;
@@ -23,7 +23,8 @@ type App = State<Arc<AppState>>;
 /// Most samples (bodies × times) one progress request may ask for.
 const MAX_SAMPLES: f64 = 200_000.0;
 
-/// A moment as Julian Day, ISO UTC string and Unix seconds.
+/// A moment as Julian Day, ISO UTC string and Unix seconds: the one place a date object is
+/// rendered, so every date in every response is converted the same way.
 pub(crate) fn moment(jd: f64) -> Value {
     let utc = julian_day_to_datetime(jd).ok().map(|d| d.and_utc().to_rfc3339_opts(SecondsFormat::Secs, true));
     json!({ "jd": jd, "utc": utc, "unix": julian_day_to_unixtime(jd) })
@@ -31,6 +32,16 @@ pub(crate) fn moment(jd: f64) -> Value {
 
 fn opt_moment(jd: Option<JdUt>) -> Value {
     jd.map_or(Value::Null, |t| moment(t.value()))
+}
+
+/// Adds the dates of a request over a span of time to its response: the moment asked about
+/// as `date`, and the two ends of the span as `start_date` and `end_date`. An open-ended
+/// span has a `null` `end_date`.
+fn with_dates(mut response: Value, jd: JdUt, start: f64, end: Option<f64>) -> Value {
+    response["date"] = moment(jd.value());
+    response["start_date"] = moment(start);
+    response["end_date"] = end.map_or(Value::Null, moment);
+    response
 }
 
 pub(crate) fn geo_json(geo: GeoPos) -> Value {
@@ -184,6 +195,70 @@ fn add_points(v: &mut Value, jd: JdUt, geo: GeoPos, ps: Perspective) {
     }
 }
 
+/// Whether a body can be seen from a perspective: not the body the observer sits on, and,
+/// away from the Earth, not the ascendant or the Earth's lunar points.
+fn seen_from(body: Body, ps: Perspective) -> bool {
+    if ps.is_earth_based() { body != Body::Earth } else { Body::set_for(&[body], ps).contains(&body) }
+}
+
+/// Several perspectives returned together: the key that names them (`tg`, `hg`, `htg` or
+/// `both`) and the perspectives in the order of their blocks.
+struct Combined {
+    key: &'static str,
+    views: Vec<Perspective>,
+}
+
+impl Combined {
+    /// Takes a combined `ps` out of the request, which is then resolved as its leading
+    /// perspective: topocentric if that is one of them (so a place is required), geocentric
+    /// otherwise.
+    fn take(q: &mut Params) -> Result<Option<Self>, ApiError> {
+        let Some((key, views)) = q.combined_views() else { return Ok(None) };
+        let single_horizon = !q.all_systems() && q.coord_system()? == CoordSystem::Horizontal;
+        if single_horizon && views.iter().any(|v| !v.is_earth_based()) {
+            return Err(ApiError::bad(format!("cs=hor needs an observer on the Earth: it is not available with ps={key}")));
+        }
+        let lead = if views.contains(&Perspective::Topocentric) { Perspective::Topocentric } else { Perspective::Geocentric };
+        q.ps = Some(perspective_key(lead).into());
+        Ok(Some(Self { key, views }))
+    }
+
+    /// The bodies of the request: those of its leading perspective, then any that only
+    /// another of the perspectives adds to a set (the Earth, seen from the Sun).
+    fn bodies(&self, q: &Params, mut list: Vec<Body>, default: &[Body]) -> Result<Vec<Body>, ApiError> {
+        for view in &self.views {
+            for body in q.body_list(*view, default)? {
+                if !list.contains(&body) {
+                    list.push(body);
+                }
+            }
+        }
+        Ok(list)
+    }
+
+    /// One object from a block for each perspective, each under its short key (`helio`,
+    /// `topo`, `geo`). A body that cannot be seen from a perspective has `null` there.
+    fn nest(&self, mut into: Value, mut block: impl FnMut(usize, Perspective) -> Option<Value>) -> Value {
+        for (i, view) in self.views.iter().enumerate() {
+            into[perspective_key(*view)] = block(i, *view).unwrap_or(Value::Null);
+        }
+        into
+    }
+}
+
+/// The key of the perspective in a response: the full name, or the combined key.
+fn ps_label(ps: Perspective, combined: &Option<Combined>) -> &'static str {
+    combined.as_ref().map_or(ps_key(ps), |c| c.key)
+}
+
+/// A position block without its body key, for nesting under a perspective.
+fn keyless(mut v: Value) -> Value {
+    if let Some(o) = v.as_object_mut() {
+        o.shift_remove("key");
+    }
+    v
+}
+
 /// What a position request asks for, apart from the perspective.
 struct PositionQuery<'a> {
     app: &'a AppState,
@@ -196,58 +271,45 @@ struct PositionQuery<'a> {
 }
 
 impl PositionQuery<'_> {
-    /// The bodies as JSON from one perspective, in one coordinate system or in all three.
-    fn seen_from(&self, ps: Perspective) -> Result<Vec<Value>, ApiError> {
+    /// Bodies as JSON from one perspective, in one coordinate system or in all three.
+    fn seen(&self, bodies: &[Body], ps: Perspective) -> Result<Vec<Value>, ApiError> {
         if self.q.all_systems() {
-            ext_list(self.app, self.bodies, self.jd, self.geo, ps, self.sid)
+            ext_list(self.app, bodies, self.jd, self.geo, ps, self.sid)
         } else {
-            Ok(self.app.eph.calc_positions(self.bodies, self.jd, self.geo, self.cs, ps)?.iter().map(|p| body_json(p, self.cs, ps, self.sid)).collect())
+            Ok(self.app.eph.calc_positions(bodies, self.jd, self.geo, self.cs, ps)?.iter().map(|p| body_json(p, self.cs, ps, self.sid)).collect())
         }
     }
 
-    /// The bodies as JSON. With `ps=both` each body holds two blocks with the same fields:
-    /// `geoc`, seen from the centre of the Earth, and `topo`, seen from the place.
-    fn list(&self, ps: Perspective, paired: bool) -> Result<Vec<Value>, ApiError> {
-        let seen = self.seen_from(ps)?;
-        if !paired {
-            return Ok(seen);
+    /// The bodies as JSON. With several perspectives each body holds one block for each,
+    /// with the same fields, under the perspective's short key.
+    fn list(&self, ps: Perspective, combined: &Option<Combined>) -> Result<Vec<Value>, ApiError> {
+        let Some(combined) = combined else { return self.seen(self.bodies, ps) };
+        let mut blocks = Vec::with_capacity(combined.views.len());
+        for view in &combined.views {
+            let visible: Vec<Body> = self.bodies.iter().copied().filter(|b| seen_from(*b, *view)).collect();
+            blocks.push(self.seen(&visible, *view)?.into_iter());
         }
-        let block = |mut v: Value| {
-            let key = v.as_object_mut().and_then(|o| o.shift_remove("key")).unwrap_or(Value::Null);
-            (key, v)
-        };
         Ok(self
-            .seen_from(Perspective::Geocentric)?
-            .into_iter()
-            .zip(seen)
-            .map(|(geoc, topo)| {
-                let ((key, geoc), (_, topo)) = (block(geoc), block(topo));
-                json!({ "key": key, "geoc": geoc, "topo": topo })
+            .bodies
+            .iter()
+            .map(|body| {
+                let item = json!({ "key": body.to_string() });
+                combined.nest(item, |i, view| if seen_from(*body, view) { blocks[i].next().map(keyless) } else { None })
             })
             .collect())
     }
 }
 
-/// `ps=both` on the position endpoints: the request is resolved as topocentric (so a place
-/// is required) and the geocentric values are added alongside.
-fn take_paired(q: &mut Params) -> bool {
-    let paired = q.both_views();
-    if paired {
-        q.ps = Some("topo".into());
-    }
-    paired
-}
-
 /// `/position`: one body.
 pub async fn position(State(app): App, Q(mut q): Q) -> Reply {
-    let paired = take_paired(&mut q);
+    let combined = Combined::take(&mut q)?;
     let jd = q.jd()?;
     let (cs, ps, geo) = q.view_topo()?;
     let body = *q.body_list(ps, &[])?.first().ok_or_else(|| ApiError::bad("a body is required: body=key"))?;
     let (ayanamshas, sid) = ayanamsha_values(&app, &q, jd, cs)?;
-    let item = PositionQuery { app: &app, q: &q, bodies: &[body], jd, geo, cs, sid }.list(ps, paired)?.remove(0);
+    let item = PositionQuery { app: &app, q: &q, bodies: &[body], jd, geo, cs, sid }.list(ps, &combined)?.remove(0);
     let mut v = json!({
-        "date": moment(jd.value()), "geo": geo_json(geo), "cs": cs_label(&q, cs, ps), "ps": if paired { "both" } else { ps_key(ps) },
+        "date": moment(jd.value()), "geo": geo_json(geo), "cs": cs_label(&q, cs, ps), "ps": ps_label(ps, &combined),
         "sidereal": sid.is_some(), "ayanamshas": ayanamshas, "body": item,
     });
     add_points(&mut v, jd, geo, ps);
@@ -256,14 +318,17 @@ pub async fn position(State(app): App, Q(mut q): Q) -> Reply {
 
 /// `/positions`: several bodies at one moment.
 pub async fn positions(State(app): App, Q(mut q): Q) -> Reply {
-    let paired = take_paired(&mut q);
+    let combined = Combined::take(&mut q)?;
     let jd = q.jd()?;
     let (cs, ps, geo) = q.view_topo()?;
-    let bodies = q.body_list(ps, &Body::DEFAULT_BODIES)?;
+    let mut bodies = q.body_list(ps, &Body::DEFAULT_BODIES)?;
+    if let Some(combined) = &combined {
+        bodies = combined.bodies(&q, bodies, &Body::DEFAULT_BODIES)?;
+    }
     let (ayanamshas, sid) = ayanamsha_values(&app, &q, jd, cs)?;
-    let list = PositionQuery { app: &app, q: &q, bodies: &bodies, jd, geo, cs, sid }.list(ps, paired)?;
+    let list = PositionQuery { app: &app, q: &q, bodies: &bodies, jd, geo, cs, sid }.list(ps, &combined)?;
     let mut v = json!({
-        "date": moment(jd.value()), "geo": geo_json(geo), "cs": cs_label(&q, cs, ps), "ps": if paired { "both" } else { ps_key(ps) },
+        "date": moment(jd.value()), "geo": geo_json(geo), "cs": cs_label(&q, cs, ps), "ps": ps_label(ps, &combined),
         "sidereal": sid.is_some(), "ayanamshas": ayanamshas,
         "bodies": list,
     });
@@ -313,8 +378,8 @@ pub async fn longitudes(State(app): App, Q(q): Q) -> Reply {
 
 /// `/extended-position`: one body in all three coordinate systems at once (ecliptic,
 /// equatorial and horizontal), whatever `cs` says. An observer on the Earth needs a place;
-/// from any other centre the horizontal angles are null. With `ps=both` the body holds a
-/// `geoc` and a `topo` block, each with every field.
+/// from any other centre the horizontal angles are null. With several perspectives
+/// (`ps=tg`, `hg` or `htg`) the body holds a block for each, with every field.
 pub async fn extended_position(app: App, Q(mut q): Q) -> Reply {
     q.cs = Some("all".into());
     position(app, Q(q)).await
@@ -328,13 +393,18 @@ pub async fn extended_positions(app: App, Q(mut q): Q) -> Reply {
 
 /// `/progress`: several bodies over a series of times from the date.
 ///
-/// With `days`, positions are sampled `pd` times a day over that many days. With `years`,
-/// the series is a secondary progression: one day of motion for each year, sampled `pd`
-/// times a year, each sample labelled with the age and the real date it stands for.
-pub async fn progress(State(app): App, Q(q): Q) -> Reply {
+/// Positions are sampled `pd` times a day over the span, which is given in `days` or in
+/// `years`, which is shorthand for that many years of 365.24219 days rounded up to a whole
+/// day. Every sample has the same fields whichever is used.
+pub async fn progress(State(app): App, Q(mut q): Q) -> Reply {
+    let combined = Combined::take(&mut q)?;
     let jd = q.jd()?;
     let (cs, ps, geo) = q.view()?;
-    let bodies = q.body_list(ps, &Body::DEFAULT_BODIES)?;
+    let mut bodies = q.body_list(ps, &Body::DEFAULT_BODIES)?;
+    if let Some(combined) = &combined {
+        bodies = combined.bodies(&q, bodies, &Body::DEFAULT_BODIES)?;
+    }
+    let views = combined.as_ref().map_or(vec![ps], |c| c.views.clone());
     if q.all_systems() {
         return Err(ApiError::bad("cs=all is not available for /progress; ask for one coordinate system"));
     }
@@ -342,50 +412,65 @@ pub async fn progress(State(app): App, Q(q): Q) -> Reply {
     if !(per.is_finite() && per > 0.0) {
         return Err(ApiError::bad("pd must be positive"));
     }
-    let (span, progressed) = match (q.years, q.days) {
-        (Some(years), _) => (years, true),
-        (None, Some(days)) => (days, false),
-        (None, None) => return Err(ApiError::bad("days or years is required")),
-    };
-    if !(span.is_finite() && span >= 0.0) {
-        return Err(ApiError::bad("days and years must not be negative"));
-    }
-    if (span * per).ceil().max(1.0) * bodies.len() as f64 > MAX_SAMPLES {
+    let span = q.span_days()?.ok_or_else(|| ApiError::bad("days or years is required"))?;
+    if (span * per).ceil().max(1.0) * (bodies.len() * views.len()) as f64 > MAX_SAMPLES {
         return Err(ApiError::bad(format!("too many samples; the limit is {MAX_SAMPLES} positions per request")));
     }
     let interval = 1.0 / per;
     let (ayanamshas, sid) = ayanamsha_values(&app, &q, jd, cs)?;
-    // A long series is CPU work: keep it off the async threads.
-    let worker = app.clone();
-    let sets = tokio::task::spawn_blocking(move || worker.eph.calc_progress_positions(&bodies, jd, span, interval, geo, cs, ps))
-        .await
-        .map_err(|e| ApiError { status: axum::http::StatusCode::INTERNAL_SERVER_ERROR, message: e.to_string() })??;
-    let series: Vec<Value> = sets
-        .iter()
-        .map(|set| {
-            let items: Vec<Value> = set
-                .items
-                .iter()
-                .map(|item| {
-                    let mut v = body_json(&item.pos, cs, ps, sid);
-                    v.as_object_mut().expect("object").remove("key");
-                    v["jd"] = json!(item.jd.value());
-                    if progressed {
-                        let age = item.jd.value() - jd.value();
-                        v["age"] = json!(age);
-                        v["date"] = moment(jd.value() + age * YEAR_DAYS);
-                    }
-                    v
-                })
-                .collect();
-            json!({ "key": set.body.to_string(), "items": items })
-        })
-        .collect();
-    Ok(Json(json!({
-        "date": moment(jd.value()), "geo": geo_json(geo), "cs": cs_key(cs, ps), "ps": ps_key(ps),
-        "progressed": progressed, "span": span, "unit": if progressed { "years" } else { "days" }, "per_unit": per,
+    // A long series is CPU work: keep it off the async threads. One run for each perspective,
+    // over the bodies that can be seen from it.
+    let (worker, wanted) = (app.clone(), bodies.clone());
+    let runs = tokio::task::spawn_blocking(move || {
+        views
+            .iter()
+            .map(|view| {
+                let visible: Vec<Body> = wanted.iter().copied().filter(|b| seen_from(*b, *view)).collect();
+                worker.eph.calc_progress_positions(&visible, jd, span, interval, geo, cs, *view).map(|sets| (*view, sets))
+            })
+            .collect::<Result<Vec<_>, _>>()
+    })
+    .await
+    .map_err(|e| ApiError { status: axum::http::StatusCode::INTERNAL_SERVER_ERROR, message: e.to_string() })??;
+    let block = |item: &astro_calc_core::BodyJdPos, view: Perspective| keyless(body_json(&item.pos, cs, view, sid));
+    let series: Vec<Value> = match &combined {
+        // One perspective: each item is the position itself, with its Julian Day.
+        None => runs[0]
+            .1
+            .iter()
+            .map(|set| {
+                let items: Vec<Value> = set
+                    .items
+                    .iter()
+                    .map(|item| {
+                        let mut v = block(item, ps);
+                        v["jd"] = json!(item.jd.value());
+                        v
+                    })
+                    .collect();
+                json!({ "key": set.body.to_string(), "items": items })
+            })
+            .collect(),
+        // Several: each item has the Julian Day and one block for each perspective.
+        Some(combined) => bodies
+            .iter()
+            .map(|body| {
+                let sets: Vec<Option<&astro_calc_core::BodyPosSet>> = runs.iter().map(|(_, sets)| sets.iter().find(|s| s.body == *body)).collect();
+                let times = sets.iter().flatten().next().map_or(&[][..], |s| &s.items[..]);
+                let items: Vec<Value> = times
+                    .iter()
+                    .enumerate()
+                    .map(|(n, at)| combined.nest(json!({ "jd": at.jd.value() }), |i, view| sets[i].map(|s| block(&s.items[n], view))))
+                    .collect();
+                json!({ "key": body.to_string(), "items": items })
+            })
+            .collect(),
+    };
+    let response = json!({
+        "geo": geo_json(geo), "cs": cs_key(cs, ps), "ps": ps_label(ps, &combined), "span": span, "unit": "days", "per_unit": per,
         "sidereal": sid.is_some(), "ayanamshas": ayanamshas, "bodies": series,
-    })))
+    });
+    Ok(Json(with_dates(response, jd, jd.value(), Some(jd.value() + span))))
 }
 
 /// `/ascendant`: the chart angles of the moment and place as `points`, the ascendant first.
@@ -423,10 +508,11 @@ pub async fn ascendant_progress(Q(q): Q) -> Reply {
             json!({ "jd": at, "lng": astro_calc_core::ascendant(at, geo) })
         })
         .collect();
-    Ok(Json(json!({
-        "date": moment(jd.value()), "geo": geo_json(geo), "days": days, "pdays": pdays, "pd": per,
+    let response = json!({
+        "geo": geo_json(geo), "days": days, "pdays": pdays, "pd": per,
         "points": angles_json(&astro_calc_core::angles(jd, geo)), "ascendants": ascendants,
-    })))
+    });
+    Ok(Json(with_dates(response, jd, start, Some(jd.value() + days))))
 }
 
 fn angles_json(a: &astro_calc_core::Angles) -> Value {
@@ -558,9 +644,8 @@ pub async fn rise_sets(State(app): App, Q(q): Q) -> Reply {
     })
     .await
     .map_err(|e| ApiError { status: axum::http::StatusCode::INTERNAL_SERVER_ERROR, message: e.to_string() })??;
-    Ok(Json(json!({
-        "date": moment(jd.value()), "geo": geo_json(geo), "days": days, "pdays": pdays, "options": rise_set_json(&opts), "bodies": list,
-    })))
+    let response = json!({ "geo": geo_json(geo), "days": days, "pdays": pdays, "options": rise_set_json(&opts), "bodies": list });
+    Ok(Json(with_dates(response, jd, jd.value() - pdays, Some(jd.value() + days))))
 }
 
 /// The bodies transposed by default: the Sun, the Moon and the five classical planets.
@@ -710,7 +795,7 @@ pub async fn stations(State(app): App, Q(q): Q) -> Reply {
             "stations": set.stations.iter().map(station_json).collect::<Vec<_>>(),
         }));
     }
-    Ok(Json(json!({ "date": moment(jd.value()), "end": end.map(|e| moment(e.value())), "bodies": list })))
+    Ok(Json(with_dates(json!({ "bodies": list }), jd, jd.value(), end.map(JdUt::value))))
 }
 
 /// `/moon-phases`: the next `num` principal phases (default 4), or all those up to an end
@@ -735,10 +820,11 @@ pub async fn moon_phases(State(app): App, Q(q): Q) -> Reply {
             v
         })
         .collect();
-    Ok(Json(json!({
-        "date": moment(jd.value()), "ps": if topo { "topocentric" } else { "geocentric" },
+    let response = json!({
+        "ps": if topo { "topocentric" } else { "geocentric" },
         "elongation": elongation, "elongation_speed": speed, "waxing": elongation < 180.0, "phases": list,
-    })))
+    });
+    Ok(Json(with_dates(response, jd, jd.value(), q.jd_end(jd)?.map(JdUt::value))))
 }
 
 fn tithi_json(t: Tithi) -> Value {
@@ -789,12 +875,12 @@ pub async fn tithis(State(app): App, Q(q): Q) -> Reply {
     }
     let (elongation, speed) = app.eph.moon_elongation(jd)?.value;
     let mut v = json!({
-        "date": moment(jd.value()), "end": end.map(|e| moment(e.value())), "ps": "geocentric",
+        "ps": "geocentric",
         "elongation": elongation, "elongation_speed": speed,
         "tithi": tithi_json(Tithi::from_elongation(elongation)), "karana": karana_json(Karana::from_elongation(elongation)),
     });
     v[if halves { "karanas" } else { "tithis" }] = list.into_iter().map(|(_, item)| item).collect();
-    Ok(Json(v))
+    Ok(Json(with_dates(v, jd, jd.value(), end.map(JdUt::value))))
 }
 
 /// `/nakshatra`: the lunar mansion of the Moon (the birth star, at a birth), or of each body

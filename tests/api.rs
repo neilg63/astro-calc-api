@@ -276,31 +276,78 @@ async fn positions_match_the_core_library() {
 }
 
 #[tokio::test]
-async fn both_views_pair_geocentric_and_topocentric() {
+async fn combined_perspectives_nest_one_block_for_each() {
     let Some(s) = state() else { return };
+    let keys = |v: &Value, field: &str| v[field].as_array().unwrap().iter().map(|b| b["key"].as_str().unwrap().to_string()).collect::<Vec<_>>().join(",");
     let base = format!("jd={JD}&loc=56.1,-3.6&bodies=su,mo,ma&aya=lh&sid=1");
-    let both = ok(&s, &format!("/extended-positions?{base}&ps=both")).await;
-    assert_eq!((both["ps"].as_str(), both["cs"].as_str()), (Some("both"), Some("all")));
-    assert!(both["points"]["ascendant"].is_number());
-    for (block, ps) in [("geoc", "geo"), ("topo", "topo")] {
-        let single = ok(&s, &format!("/extended-positions?{base}&ps={ps}")).await;
-        for (pair, one) in both["bodies"].as_array().unwrap().iter().zip(single["bodies"].as_array().unwrap()) {
-            assert_eq!(pair.as_object().unwrap().keys().collect::<Vec<_>>(), ["key", "geoc", "topo"]);
-            assert_eq!(pair["key"], one["key"]);
-            let mut want = one.clone();
-            want.as_object_mut().unwrap().shift_remove("key");
-            assert_eq!(pair[block], want, "{block}");
+    // `tg` and its older name `both`: every body from the place and from the Earth's centre.
+    for (combined, order) in [("both", ["key", "geo", "topo"]), ("tg", ["key", "topo", "geo"])] {
+        let pair = ok(&s, &format!("/extended-positions?{base}&ps={combined}")).await;
+        assert_eq!((pair["ps"].as_str(), pair["cs"].as_str()), (Some(combined), Some("all")));
+        assert!(pair["points"]["ascendant"].is_number());
+        for ps in ["geo", "topo"] {
+            let single = ok(&s, &format!("/extended-positions?{base}&ps={ps}")).await;
+            for (nested, one) in pair["bodies"].as_array().unwrap().iter().zip(single["bodies"].as_array().unwrap()) {
+                assert_eq!(nested.as_object().unwrap().keys().collect::<Vec<_>>(), order);
+                assert_eq!(nested["key"], one["key"]);
+                let mut want = one.clone();
+                want.as_object_mut().unwrap().shift_remove("key");
+                assert_eq!(nested[ps], want, "{combined} {ps}");
+            }
         }
     }
     // One coordinate system, and one body.
-    let ecl = ok(&s, &format!("/positions?jd={JD}&loc=56.1,-3.6&bodies=mo&ps=both")).await;
+    let ecl = ok(&s, &format!("/positions?jd={JD}&loc=56.1,-3.6&bodies=mo&ps=tg")).await;
     let moon = &ecl["bodies"][0];
-    assert!((f(&moon["geoc"]["lng"]) - f(&moon["topo"]["lng"])).abs() > 0.05);
-    assert!(moon["geoc"]["ras"].is_null());
+    assert!((f(&moon["geo"]["lng"]) - f(&moon["topo"]["lng"])).abs() > 0.05);
+    assert!(moon["geo"]["ras"].is_null());
     let one = ok(&s, &format!("/extended-position?jd={JD}&loc=56.1,-3.6&body=mo&ps=both")).await;
     assert!(one["body"]["topo"]["alt"].is_number());
-    // It needs a place, and only the position endpoints take it.
-    for path in [format!("/extended-positions?jd={JD}&ps=both"), "/moon-phases?ps=both".into(), "/longitudes?ps=both&loc=56.1,-3.6".into()] {
+
+    // `htg` adds the view from the Sun. A body that cannot be seen from a perspective has
+    // null there: the Sun from the Sun, the Earth and the lunar nodes from the Earth or Sun.
+    let all = ok(&s, &format!("/extended-positions?jd={JD}&loc=56.1,-3.6&bodies=su,ea,ma,ra&ps=htg")).await;
+    assert_eq!((all["ps"].as_str(), keys(&all, "bodies").as_str()), (Some("htg"), "su,ea,ma,ra"));
+    let helio = ok(&s, &format!("/extended-positions?jd={JD}&bodies=ea,ma&ps=helio")).await;
+    let (sun, earth, mars, rahu) = (&all["bodies"][0], &all["bodies"][1], &all["bodies"][2], &all["bodies"][3]);
+    assert_eq!(mars.as_object().unwrap().keys().collect::<Vec<_>>(), ["key", "helio", "topo", "geo"]);
+    assert!(sun["helio"].is_null() && sun["geo"]["lng"].is_number() && sun["topo"]["azi"].is_number());
+    assert!(earth["geo"].is_null() && earth["topo"].is_null() && rahu["helio"].is_null() && rahu["geo"]["lng"].is_number());
+    assert_eq!((f(&earth["helio"]["lng"]), f(&mars["helio"]["ras"])), (f(&helio["bodies"][0]["lng"]), f(&helio["bodies"][1]["ras"])));
+    assert!(mars["helio"]["azi"].is_null() && mars["topo"]["azi"].is_number());
+    // The Sun from the Earth is opposite the Earth from the Sun.
+    assert!(((f(&sun["geo"]["lng"]) - f(&earth["helio"]["lng"])).rem_euclid(360.0) - 180.0).abs() < 0.01);
+    // `hg` needs no place; a set gains the Earth for the view from the Sun.
+    let hg = ok(&s, &format!("/positions?jd={JD}&ps=hg&bodies=basic")).await;
+    assert_eq!((hg["ps"].as_str(), keys(&hg, "bodies").as_str()), (Some("hg"), "su,mo,me,ve,ma,ju,sa,ke,ra,ea"));
+    assert!(hg.get("points").is_none() && hg["bodies"][9]["helio"]["lng"].is_number() && hg["bodies"][9]["geo"].is_null());
+
+    // `/progress` nests the same blocks in every item, beside its Julian Day.
+    let series = ok(&s, &format!("/progress?jd={JD}&loc=56.1,-3.6&bodies=su,ea,ma&days=3&ps=htg")).await;
+    assert_eq!((series["ps"].as_str(), keys(&series, "bodies").as_str()), (Some("htg"), "su,ea,ma"));
+    let single = ok(&s, &format!("/progress?jd={JD}&bodies=ma&days=3&ps=helio")).await;
+    let (sun, mars) = (series["bodies"][0]["items"].as_array().unwrap(), series["bodies"][2]["items"].as_array().unwrap());
+    assert_eq!((sun.len(), mars.len()), (3, 3));
+    assert_eq!(mars[1].as_object().unwrap().keys().collect::<Vec<_>>(), ["jd", "helio", "topo", "geo"]);
+    assert!((f(&mars[1]["jd"]) - JD - 1.0).abs() < 1e-9 && sun[1]["helio"].is_null() && sun[1]["geo"]["lng"].is_number());
+    let mut want = single["bodies"][0]["items"][1].clone();
+    want.as_object_mut().unwrap().shift_remove("jd");
+    assert_eq!(mars[1]["helio"], want);
+    assert!(mars[1]["helio"].get("jd").is_none() && (f(&mars[1]["geo"]["lng"]) - f(&mars[1]["topo"]["lng"])).abs() < 0.01);
+
+    // The short keys, and the older ones, name the same perspectives.
+    for (key, name) in [("local", "local-space-horizon"), ("geoc", "geocentric"), ("geo", "geocentric"), ("bary", "barycentric")] {
+        assert_eq!(ok(&s, &format!("/positions?jd={JD}&loc=56.1,-3.6&bodies=ma&ps={key}")).await["ps"], name, "{key}");
+    }
+    // A topocentric block needs a place, a horizon needs the Earth, and only the position
+    // endpoints and /progress take several perspectives.
+    for path in [
+        format!("/extended-positions?jd={JD}&ps=both"),
+        format!("/progress?jd={JD}&days=2&ps=htg"),
+        format!("/positions?jd={JD}&loc=56.1,-3.6&cs=hor&ps=hg"),
+        "/moon-phases?ps=tg".into(),
+        "/longitudes?ps=hg&loc=56.1,-3.6".into(),
+    ] {
         assert_eq!(get(&s, &path).await.0, StatusCode::BAD_REQUEST, "{path}");
     }
 }
@@ -573,17 +620,30 @@ async fn events_and_series() {
 
     // A plain series: two samples a day for three days.
     let v = ok(&s, &format!("/progress?jd={JD}&bodies=su,mo&days=3&pd=2")).await;
-    assert_eq!((v["progressed"].as_bool(), v["bodies"].as_array().unwrap().len()), (Some(false), 2));
+    assert_eq!((v["unit"].as_str(), v["bodies"].as_array().unwrap().len()), (Some("days"), 2));
     let moon = v["bodies"][1]["items"].as_array().unwrap();
     assert_eq!(moon.len(), 6);
     assert!((f(&moon[1]["jd"]) - JD - 0.5).abs() < 1e-9);
-    // A secondary progression: age 30 is the sky thirty days after birth.
-    let v = ok(&s, &format!("/progress?jd={JD}&bodies=su&years=40")).await;
+    // The dates of the span: the moment asked about, and its two ends, each in full.
+    assert_eq!((f(&v["date"]["jd"]), f(&v["start_date"]["jd"]), f(&v["end_date"]["jd"])), (JD, JD, JD + 3.0));
+    assert_eq!((v["start_date"]["utc"].as_str(), v["end_date"]["utc"].as_str()), (Some("1996-01-12T11:25:00Z"), Some("1996-01-15T11:25:00Z")));
+    assert_eq!(v["end_date"]["unix"], 821_445_900 + 3 * 86_400);
+    // `years` is the same series over a longer span: one sample a day, and the same fields.
+    let v = ok(&s, &format!("/progress?jd={JD}&bodies=su&years=2")).await;
     let sun = v["bodies"][0]["items"].as_array().unwrap();
-    assert_eq!((v["progressed"].as_bool(), sun.len()), (Some(true), 40));
+    assert_eq!((v["unit"].as_str(), sun.len()), (Some("days"), 731));
+    assert_eq!((f(&v["span"]), f(&v["end_date"]["jd"])), (731.0, JD + 731.0));
     let expected = s.eph.calc_position(Body::Sun, JD + 30.0, GeoPos::default(), CoordSystem::Ecliptic, Perspective::Geocentric).unwrap();
-    assert_eq!((f(&sun[30]["age"]), f(&sun[30]["lng"])), (30.0, expected.lng));
-    assert_eq!(&sun[30]["date"]["utc"].as_str().unwrap()[..4], "2026");
+    assert_eq!((f(&sun[30]["jd"]), f(&sun[30]["lng"])), (JD + 30.0, expected.lng));
+    let (daily, yearly) = (moon[0].as_object().unwrap(), sun[0].as_object().unwrap());
+    assert!(daily.keys().eq(yearly.keys()) && !yearly.contains_key("date") && !yearly.contains_key("age"));
+    // Other spans carry the same three dates; an open-ended one has no end.
+    let v = ok(&s, &format!("/ascendant-progress?jd={JD}&loc=51.5,-0.1&days=2&pdays=1")).await;
+    assert_eq!((f(&v["date"]["jd"]), f(&v["start_date"]["jd"]), f(&v["end_date"]["jd"])), (JD, JD - 1.0, JD + 2.0));
+    let v = ok(&s, &format!("/tithis?jd={JD}&num=3")).await;
+    assert!(f(&v["start_date"]["jd"]) == JD && v["end_date"].is_null());
+    let v = ok(&s, &format!("/tithis?jd={JD}&days=10")).await;
+    assert_eq!(f(&v["end_date"]["jd"]), JD + 10.0);
 
     // Aspects agree with the core matcher.
     let v = ok(&s, &format!("/aspects?jd={JD}&bodies=su,mo,me,ve,ma,ju,sa&aspects=0:8,60:6,90:8,120:8,180:8")).await;
