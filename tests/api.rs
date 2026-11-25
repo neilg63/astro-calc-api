@@ -614,9 +614,52 @@ async fn events_and_series() {
     assert!((f(&moon["degrees"]) - want % span).abs() < 1e-9 && (f(&moon["fraction"]) - (want % span) / span).abs() < 1e-9);
     assert_eq!(moon["pada"].as_u64(), Some((want * 0.3) as u64 % 4 + 1));
     assert!(moon["name"].is_string() && moon["lord"].is_string());
+    // The Moon's stay: about a day, round the date, in the same nakshatra from end to end.
+    let (start, end) = (f(&moon["start_jd"]), f(&moon["end_jd"]));
+    assert!(start <= JD && JD < end && (0.8..1.2).contains(&(end - start)), "{start} {end}");
+    let inside = ok(&s, &format!("/nakshatra?jd={}", start + 0.001)).await;
+    let after = ok(&s, &format!("/nakshatra?jd={}", end + 0.001)).await;
+    assert_eq!(inside["bodies"][0]["num"], moon["num"]);
+    assert_eq!(after["bodies"][0]["num"].as_u64(), Some(moon["num"].as_u64().unwrap() % 27 + 1));
+    assert!(f(&inside["bodies"][0]["fraction"]) < 0.01 && (f(&after["bodies"][0]["start_jd"]) - end).abs() < 1e-6);
     let lahiri = ok(&s, &format!("/nakshatra?jd={JD}&aya=lh&bodies=su,mo,as&loc=56.1,-3.6")).await;
     assert_eq!((lahiri["ayanamsha"]["key"].as_str(), lahiri["bodies"].as_array().unwrap().len()), (Some("lh"), 3));
     assert!((f(&lahiri["bodies"][1]["lng"]) - want).abs() < 0.1 && !close(f(&lahiri["bodies"][1]["lng"]), want));
+    // The listing opens with the nakshatra in force and its true start, then counts on.
+    let listing = ok(&s, &format!("/nakshatras?jd={JD}")).await;
+    assert_eq!((listing["ayanamsha"]["key"].as_str(), listing["bodies"][0]["key"].as_str()), (Some("tc"), Some("mo")));
+    assert!(listing["date"]["utc"].is_string() && close(f(&listing["start_date"]["jd"]), JD) && listing["end_date"].is_null());
+    let items = listing["bodies"][0]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 27);
+    assert_eq!((&items[0]["num"], &items[0]["name"], &items[0]["lord"]), (&moon["num"], &moon["name"], &moon["lord"]));
+    assert!((f(&items[0]["start_jd"]) - start).abs() < 1e-6 && (f(&items[1]["start_jd"]) - end).abs() < 1e-6);
+    for pair in items.windows(2) {
+        assert_eq!(pair[1]["num"].as_u64(), Some(pair[0]["num"].as_u64().unwrap() % 27 + 1));
+        assert!((0.8..1.2).contains(&(f(&pair[1]["start_jd"]) - f(&pair[0]["start_jd"]))) && pair[1]["direct"] == true);
+    }
+    assert_eq!(items.iter().map(|i| i["num"].as_u64().unwrap()).collect::<std::collections::BTreeSet<_>>().len(), 27);
+    assert_eq!(items[0].as_object().unwrap().keys().collect::<Vec<_>>(), items[5].as_object().unwrap().keys().collect::<Vec<_>>());
+    // By count, or up to an end date; several bodies each get a list.
+    let few = ok(&s, &format!("/nakshatras?jd={JD}&num=3&bodies=mo,su")).await;
+    assert_eq!((few["bodies"][0]["items"].as_array().unwrap().len(), few["bodies"][1]["items"].as_array().unwrap().len()), (3, 3));
+    assert_eq!(few["bodies"][0]["items"][2], items[2]);
+    let span_of = |v: &Value, i: usize| f(&v["bodies"][1]["items"][i + 1]["start_jd"]) - f(&v["bodies"][1]["items"][i]["start_jd"]);
+    assert!((13.0..14.5).contains(&span_of(&few, 0)));
+    let month = ok(&s, &format!("/nakshatras?jd={JD}&days=10")).await;
+    let within = month["bodies"][0]["items"].as_array().unwrap();
+    assert!((10..=12).contains(&within.len()) && f(&within[within.len() - 1]["start_jd"]) <= JD + 10.0);
+    assert!(close(f(&month["end_date"]["jd"]), JD + 10.0) && within[..5] == items[..5]);
+    // A retrograde planet steps back: Mercury re-entered Mula from Purva Ashadha in late December 2023.
+    let mercury = ok(&s, "/nakshatras?dt=2023-12-01T00:00:00&days=60&bodies=me").await;
+    let path: Vec<(u64, bool)> = mercury["bodies"][0]["items"].as_array().unwrap().iter().map(|i| (i["num"].as_u64().unwrap(), i["direct"] == true)).collect();
+    assert!(path.windows(2).any(|w| w[1].0 + 1 == w[0].0 && !w[1].1), "{path:?}");
+    for bad in ["bodies=as&loc=56.1,-3.6", "days=-1"] {
+        assert_eq!(get(&s, &format!("/nakshatras?jd={JD}&{bad}")).await.0, StatusCode::BAD_REQUEST, "{bad}");
+    }
+    // The Sun spends about a fortnight in one; the ascendant has no stay.
+    let sun = &lahiri["bodies"][0];
+    assert!((13.0..14.5).contains(&(f(&sun["end_jd"]) - f(&sun["start_jd"]))));
+    assert!(lahiri["bodies"][2].get("start_jd").is_none() && lahiri["bodies"][2].get("end_jd").is_none());
     assert_eq!(get(&s, &format!("/nakshatra?jd={JD}&bodies=as")).await.0, StatusCode::BAD_REQUEST);
 
     // A plain series: two samples a day for three days.

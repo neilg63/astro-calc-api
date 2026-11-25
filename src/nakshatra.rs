@@ -60,6 +60,16 @@ impl Nakshatra {
         Self { num: index + 1, pada: quarter % 4 + 1, degrees }
     }
 
+    /// The nakshatra with this index, 0 (Ashwini) to 26 (Revati), at its beginning.
+    pub fn from_index(index: u32) -> Self {
+        Self { num: (index % 27) as u8 + 1, pada: 1, degrees: 0.0 }
+    }
+
+    /// `num`, `name` and `lord` alone: what identifies it, apart from any position within it.
+    pub fn summary_json(self) -> Value {
+        json!({ "num": self.num, "name": self.name(), "lord": self.lord() })
+    }
+
     pub fn name(self) -> &'static str {
         NAMES[(self.num - 1) as usize]
     }

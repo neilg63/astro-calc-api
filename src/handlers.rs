@@ -159,7 +159,7 @@ pub async fn index(State(app): App) -> Json<Value> {
         "station_table": app.stations.is_some(),
         "endpoints": [
             "/bodies", "/stars", "/longitude", "/longitudes", "/position", "/positions", "/extended-position", "/extended-positions", "/progress", "/ascendant", "/ascendant-progress", "/angles", "/houses",
-            "/ayanamsha", "/rise-set", "/rise-sets", "/transposed-positions", "/transposed-transits", "/stations", "/moon-phases", "/tithis", "/nakshatra", "/indian-day", "/pheno", "/aspects"
+            "/ayanamsha", "/rise-set", "/rise-sets", "/transposed-positions", "/transposed-transits", "/stations", "/moon-phases", "/tithis", "/nakshatra", "/nakshatras", "/indian-day", "/pheno", "/aspects"
         ],
     }))
 }
@@ -885,26 +885,94 @@ pub async fn tithis(State(app): App, Q(q): Q) -> Reply {
     Ok(Json(with_dates(v, jd, jd.value(), end.map(JdUt::value))))
 }
 
+/// How far either side of a date a body's entry into its nakshatra and its exit are looked
+/// for, in days: forty years, longer than Pluto ever spends in one.
+const STAY_SEARCH_DAYS: f64 = 14_610.0;
+/// The most nakshatras `/nakshatras` lists for one body.
+const MAX_NAKSHATRAS: usize = 2_000;
+
+/// `/nakshatras`: the nakshatras a body passes through, each with the moment it enters,
+/// `start_jd`. The Moon unless `bodies` names others. Each list opens with the nakshatra in
+/// force at the date and runs for `num` of them (default 27, once round for the Moon), or up
+/// to an end date. Geocentric; the ayanamsha is the first in `aya`, True Citra if none is given.
+pub async fn nakshatras(State(app): App, Q(q): Q) -> Reply {
+    let jd = q.jd()?;
+    let bodies = q.body_list(Perspective::Geocentric, &[Body::Moon])?;
+    if bodies.contains(&Body::Ascendant) {
+        return Err(ApiError::bad("the ascendant has no listing: it passes through every nakshatra each day"));
+    }
+    let aya = q.ayanamshas()?.first().copied().unwrap_or(Ayanamsha::TrueCitra);
+    let end = q.jd_end(jd)?;
+    if end.is_some_and(|e| e.value() < jd.value()) {
+        return Err(ApiError::bad("the end date is before the start"));
+    }
+    // After the one in force: `num - 1` more within the search span, or all up to the end date.
+    let (more, max_days) = match end {
+        Some(e) => (MAX_NAKSHATRAS - 1, e.value() - jd.value()),
+        None => (q.num.unwrap_or(27).clamp(1, MAX_NAKSHATRAS as u32) as usize - 1, STAY_SEARCH_DAYS),
+    };
+    let span = crate::nakshatra::SPAN;
+    // A slow planet's passage is a search over years: keep it off the async threads.
+    let worker = app.clone();
+    let list = tokio::task::spawn_blocking(move || -> Result<Vec<Value>, ApiError> {
+        let mut list = Vec::with_capacity(bodies.len());
+        for body in bodies {
+            let stay = worker.eph.longitude_stay(body, jd, span, Some(aya), STAY_SEARCH_DAYS)?;
+            let item = |index: u32, start: Option<f64>, direct: Option<bool>| {
+                let mut v = Nakshatra::from_index(index).summary_json();
+                v["start_jd"] = json!(start);
+                v["direct"] = json!(direct);
+                v
+            };
+            let mut items = vec![item(stay.division, stay.entered.map(|c| c.jd.value()), stay.entered.map(|c| c.direct))];
+            let crossings = worker.eph.next_longitude_crossings(body, jd, more, span, Some(aya), max_days)?;
+            items.extend(crossings.iter().map(|c| item(c.into, Some(c.jd.value()), Some(c.direct))));
+            list.push(json!({ "key": body.to_string(), "items": items }));
+        }
+        Ok(list)
+    })
+    .await
+    .map_err(|e| ApiError { status: axum::http::StatusCode::INTERNAL_SERVER_ERROR, message: e.to_string() })??;
+    let response = json!({
+        "ps": "geocentric",
+        "ayanamsha": { "key": aya.key(), "name": aya.name(), "value": app.eph.ayanamsha(jd, aya)? },
+        "span": span, "bodies": list,
+    });
+    Ok(Json(with_dates(response, jd, jd.value(), end.map(JdUt::value))))
+}
+
 /// `/nakshatra`: the lunar mansion of the Moon (the birth star, at a birth), or of each body
 /// in `bodies`: one of 27 divisions of 13°20′ of the sidereal zodiac, with its pada and lord.
 /// Geocentric. The ayanamsha is the first one in `aya`, True Citra if none is given. The
-/// ascendant (`as`) may be listed when a place is given.
+/// ascendant (`as`) may be listed when a place is given. Each body but the ascendant also
+/// has the moments it came into the nakshatra and leaves it, `start_jd` and `end_jd`.
 pub async fn nakshatra(State(app): App, Q(q): Q) -> Reply {
     let jd = q.jd()?;
     let place = q.geo()?;
     let bodies = q.body_list(Perspective::Geocentric, &[Body::Moon])?;
     let aya = q.ayanamshas()?.first().copied().unwrap_or(Ayanamsha::TrueCitra);
     let list = app.eph.calc_longitudes(&bodies, jd, place.unwrap_or_default(), Perspective::Geocentric, Some(aya))?;
-    let items: Vec<Value> = list
-        .iter()
-        .map(|l| {
+    // A slow planet's stay is a search over years: keep it off the async threads.
+    let worker = app.clone();
+    let items = tokio::task::spawn_blocking(move || -> Result<Vec<Value>, ApiError> {
+        let mut items = Vec::with_capacity(list.len());
+        for l in &list {
             let mut v = json!({ "key": l.body.to_string(), "lng": l.lng });
             for (field, value) in Nakshatra::from_sidereal(l.lng).json().as_object().into_iter().flatten() {
                 v[field] = value.clone();
             }
-            v
-        })
-        .collect();
+            // The ascendant goes round the whole zodiac in a day: it has no stay worth timing.
+            if l.body != Body::Ascendant {
+                let stay = worker.eph.longitude_stay(l.body, jd, crate::nakshatra::SPAN, Some(aya), STAY_SEARCH_DAYS)?;
+                v["start_jd"] = json!(stay.entered.map(|c| c.jd.value()));
+                v["end_jd"] = json!(stay.left.map(|c| c.jd.value()));
+            }
+            items.push(v);
+        }
+        Ok(items)
+    })
+    .await
+    .map_err(|e| ApiError { status: axum::http::StatusCode::INTERNAL_SERVER_ERROR, message: e.to_string() })??;
     Ok(Json(json!({
         "date": moment(jd.value()), "geo": place.map(geo_json), "ps": "geocentric",
         "ayanamsha": { "key": aya.key(), "name": aya.name(), "value": app.eph.ayanamsha(jd, aya)? },

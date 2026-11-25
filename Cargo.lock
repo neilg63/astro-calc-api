@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "astro-calc-core"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "aspect360",
  "chrono",

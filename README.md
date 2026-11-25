@@ -253,6 +253,7 @@ In `/progress` every item has its Julian Day once, as `jd`, and the same blocks:
 | `/moon-phases` | The next lunar phases | `num`, or a range; `ps` |
 | `/tithis` | The lunar days of the Indian calendar and when each begins | `num`, or a range; `karanas` |
 | `/nakshatra` | The lunar mansion of the Moon (the birth star) or of other bodies | `bodies`, `aya`, place for `as` |
+| `/nakshatras` | The nakshatras a body passes through, with the moment it enters each | `bodies`, `aya`, `num` or an end date |
 | `/indian-day` | The sunrise-to-sunrise day and its time units | place, rise/set options |
 | `/pheno` | Phase, elongation, diameter and magnitude | `bodies` |
 | `/aspects` | Aspects between bodies at one moment | `bodies`, `aspects` or `orb`, `ps` |
@@ -316,9 +317,36 @@ when a place is given. Each item has the body's `key`, its sidereal `lng`, and:
 | `lord` | The key of its ruler in Vimshottari order: `ke`, `ve`, `su`, `mo`, `ma`, `ra`, `ju`, `sa`, `me`, three times round |
 | `degrees` | How far into it the longitude is, from 0 up to 13°20′ |
 | `fraction` | The same as a part of the whole, 0 to 1 |
+| `start_jd` | The moment the body came into the nakshatra, as a Julian Day |
+| `end_jd` | The moment it leaves it |
 
 The result depends on the ayanamsha: the first key in `aya`, or True Citra (`tc`) when none
 is given. The response says which was used and its value. Positions are geocentric.
+
+`start_jd` and `end_jd` bound the body's present stay: about a day for the Moon, a fortnight
+for the Sun, years for the outer planets. A planet that turns retrograde may leave by the
+boundary it came in at, so the stay is the unbroken time in the nakshatra round the date,
+not the whole of a passage through it. Each is looked for over forty years either side and
+is `null` if not found in that time, or if the ephemeris ends first. The ascendant has
+neither field.
+
+`/nakshatras` lists the nakshatras a body passes through, the Moon unless `bodies` names
+others; each body has its own `items`. A list opens with the nakshatra in force at the date
+and gives `num` of them (default 27, once round the zodiac for the Moon), or all those up to
+an end date (`dt2`, `jd2`, `days` or `years`). Each item has:
+
+| Field | Meaning |
+|---|---|
+| `num`, `name`, `lord` | As above |
+| `start_jd` | The moment the body enters it, as a Julian Day. Each ends where the next begins |
+| `direct` | `false` where the body enters it moving backwards, at its end |
+
+The first item's `start_jd` is before the date: it is when the nakshatra in force began.
+The Moon and the Sun go through them in order. A planet that turns retrograde steps back
+into the one before and later forward again, so a nakshatra can appear more than once, and
+each entry counts towards `num`. A list holds 2,000 items at most, and a search by `num`
+stops forty years after the date, so a slow planet may return fewer than asked for. The
+ascendant cannot be listed.
 
 ### Transposed positions and transits
 

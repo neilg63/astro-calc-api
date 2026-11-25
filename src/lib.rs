@@ -67,6 +67,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/moon-phases", get(handlers::moon_phases))
         .route("/tithis", get(handlers::tithis))
         .route("/nakshatra", get(handlers::nakshatra))
+        .route("/nakshatras", get(handlers::nakshatras))
         .route("/indian-day", get(handlers::indian_day))
         .route("/pheno", get(handlers::pheno))
         .route("/aspects", get(handlers::aspects))
